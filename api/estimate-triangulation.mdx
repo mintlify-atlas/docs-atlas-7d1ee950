@@ -1,0 +1,106 @@
+---
+title: "estimate_triangulation"
+description: "Robustly triangulate a single 3D point from observations across multiple views using RANSAC."
+---
+
+## Function signature
+
+```python
+pycolmap.estimate_triangulation(
+    point_data,
+    images,
+    cameras,
+    options = pycolmap.EstimateTriangulationOptions(),
+)
+```
+
+Estimate the 3D position of a single point given its 2D observations across multiple images, using a RANSAC-based robust estimator.
+
+<Note>
+  Returns `None` if triangulation fails (e.g., insufficient triangulation angle or too few inliers). Always check the return value.
+</Note>
+
+## Parameters
+
+<ParamField path="point_data" type="list[pycolmap.PointData]" required>
+  A list of `pycolmap.PointData` objects, one per observation. Each `PointData` is constructed from a 2D pixel coordinate and its normalized (undistorted) image coordinate:
+
+  ```python
+  pd = pycolmap.PointData(
+      point2D,        # numpy.ndarray (2,) — pixel coords
+      point2D_n,      # numpy.ndarray (2,) — normalized (undistorted) coords
+  )
+  ```
+</ParamField>
+
+<ParamField path="images" type="list[pycolmap.Image]" required>
+  List of `Image` objects corresponding to each observation. Must have the same length as `point_data`.
+</ParamField>
+
+<ParamField path="cameras" type="list[pycolmap.Camera]" required>
+  List of `Camera` objects corresponding to each observation. Must have the same length as `point_data` and `images`.
+</ParamField>
+
+<ParamField path="options" type="pycolmap.EstimateTriangulationOptions">
+  Triangulation options including RANSAC parameters and minimum triangulation angle.
+</ParamField>
+
+## Return value
+
+Returns a `dict` on success, or `None` on failure.
+
+<ResponseField name="xyz" type="numpy.ndarray (3,)">
+  The estimated 3D world coordinates of the point.
+</ResponseField>
+
+<ResponseField name="inliers" type="numpy.ndarray (bool)">
+  Boolean array indicating which observations were inliers.
+</ResponseField>
+
+## EstimateTriangulationOptions
+
+<ParamField path="min_tri_angle" type="float">
+  Minimum triangulation angle in degrees. Observations with a smaller angle between rays are considered degenerate.
+</ParamField>
+
+<ParamField path="ransac" type="pycolmap.RANSACOptions">
+  RANSAC parameters. See [RANSACOptions](/api/ransac-options) for all fields.
+</ParamField>
+
+## Example
+
+```python
+import numpy as np
+import pycolmap
+
+# Suppose we have observations of the same 3D point in two registered images
+reconstruction = pycolmap.Reconstruction("path/to/sfm")
+
+image1 = reconstruction.images[1]
+image2 = reconstruction.images[2]
+camera1 = reconstruction.cameras[image1.camera_id]
+camera2 = reconstruction.cameras[image2.camera_id]
+
+# 2D pixel coordinates of the observed point
+obs1_px = np.array([320.0, 240.0])
+obs2_px = np.array([315.5, 242.3])
+
+# Undistorted / normalized coordinates
+obs1_n = camera1.cam_from_img(obs1_px)
+obs2_n = camera2.cam_from_img(obs2_px)
+
+pd1 = pycolmap.PointData(obs1_px, obs1_n)
+pd2 = pycolmap.PointData(obs2_px, obs2_n)
+
+result = pycolmap.estimate_triangulation(
+    point_data=[pd1, pd2],
+    images=[image1, image2],
+    cameras=[camera1, camera2],
+)
+
+if result is not None:
+    print("3D point:", result["xyz"])
+    print("Inliers:", result["inliers"])
+else:
+    print("Triangulation failed")
+```

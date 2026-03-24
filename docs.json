@@ -52,6 +52,12 @@
             ]
           },
           {
+            "group": "Geometry",
+            "pages": [
+              "scene/geometry"
+            ]
+          },
+          {
             "group": "Estimators",
             "pages": [
               "estimators/overview",
@@ -81,7 +87,9 @@
               "api/extract-features",
               "api/match-features",
               "api/incremental-mapping",
-              "api/dense-reconstruction"
+              "api/bundle-adjustment",
+              "api/dense-reconstruction",
+              "api/import-images"
             ]
           },
           {
@@ -92,7 +100,14 @@
               "api/essential-matrix-estimation",
               "api/fundamental-matrix-estimation",
               "api/homography-matrix-estimation",
-              "api/two-view-geometry-estimation"
+              "api/two-view-geometry-estimation",
+              "api/estimate-triangulation"
+            ]
+          },
+          {
+            "group": "Alignment",
+            "pages": [
+              "api/alignment"
             ]
           },
           {
@@ -104,7 +119,8 @@
               "api/point3d",
               "api/database",
               "api/sift",
-              "api/ransac-options"
+              "api/ransac-options",
+              "api/geometry-classes"
             ]
           }
         ]

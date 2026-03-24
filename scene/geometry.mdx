@@ -1,0 +1,202 @@
+---
+title: "Geometry Classes"
+description: "Rigid3d, Rotation3d, and Sim3d — the 3D geometry primitives used throughout PyCOLMAP for poses, rotations, and similarity transforms."
+---
+
+PyCOLMAP exposes three geometry classes that appear throughout the API as pose representations and transform types.
+
+<CardGroup cols={3}>
+  <Card title="Rigid3d" icon="arrows-up-down-left-right">
+    Rigid body transform: rotation + translation. Used for camera poses (`cam_from_world`).
+  </Card>
+  <Card title="Rotation3d" icon="rotate">
+    3D rotation stored as a unit quaternion. Used as `Rigid3d.rotation`.
+  </Card>
+  <Card title="Sim3d" icon="expand">
+    Similarity transform: scale + rotation + translation. Used for reconstruction alignment.
+  </Card>
+</CardGroup>
+
+---
+
+## Rigid3d
+
+A rigid body transformation: rotation followed by translation. Maps 3D world points into camera space (or any other coordinate frame).
+
+### Constructor
+
+```python
+# Identity transform
+t = pycolmap.Rigid3d()
+
+# From rotation and translation
+t = pycolmap.Rigid3d(rotation, translation)
+# rotation: pycolmap.Rotation3d or numpy array (xyzw quaternion)
+# translation: numpy array shape (3,)
+
+# From 3×4 matrix [R | t]
+import numpy as np
+matrix34 = np.eye(3, 4)
+t = pycolmap.Rigid3d(matrix34)
+```
+
+### Properties
+
+| Property | Type | Description |
+|---|---|---|
+| `rotation` | `pycolmap.Rotation3d` | Rotation component (unit quaternion). |
+| `translation` | `numpy.ndarray (3,)` | Translation vector. |
+
+### Methods
+
+| Method | Returns | Description |
+|---|---|---|
+| `matrix()` | `numpy.ndarray (3, 4)` | 3×4 `[R | t]` matrix. |
+| `inverse()` | `Rigid3d` | Inverse transform. |
+| `essential_matrix()` | `numpy.ndarray (3, 3)` | Essential matrix computed from this pose. |
+| `Rigid3d.interpolate(t1, t2, alpha)` | `Rigid3d` | Spherically interpolate between two poses. |
+
+### Operators
+
+```python
+# Compose two transforms
+t3 = t1 * t2       # Rigid3d * Rigid3d -> Rigid3d
+
+# Transform a single point
+p_cam = t * p_world    # Rigid3d * np.array(3,) -> np.array(3,)
+
+# Transform many points at once
+p_cam = t * points     # Rigid3d * np.ndarray(N, 3) -> np.ndarray(N, 3)
+```
+
+### Example
+
+```python
+import numpy as np
+import pycolmap
+
+# Build a pose from quaternion (xyzw) and translation
+rot = pycolmap.Rotation3d(np.array([0, 0, 0, 1.0]))  # identity
+t   = np.array([1.0, 0.0, 0.0])
+cam_from_world = pycolmap.Rigid3d(rot, t)
+
+# Project a 3D world point into camera space
+p_world = np.array([2.0, 3.0, 5.0])
+p_cam   = cam_from_world * p_world
+print(p_cam)   # [3.0, 3.0, 5.0]
+
+# Get 4×4 homogeneous matrix
+mat34 = cam_from_world.matrix()      # (3, 4)
+```
+
+---
+
+## Rotation3d
+
+A 3D rotation stored as a unit quaternion (`Eigen::Quaterniond`). The quaternion is in `[x, y, z, w]` format.
+
+### Constructors
+
+```python
+# Identity
+r = pycolmap.Rotation3d()
+
+# From quaternion [x, y, z, w]
+r = pycolmap.Rotation3d(xyzw=np.array([0, 0, 0, 1.0]))
+
+# From 3×3 rotation matrix
+r = pycolmap.Rotation3d(rotmat=np.eye(3))
+
+# From axis-angle (3D vector, magnitude = angle in radians)
+r = pycolmap.Rotation3d(axis_angle=np.array([0, 0, np.pi/2]))
+```
+
+### Properties
+
+| Property | Type | Description |
+|---|---|---|
+| `quat` | `numpy.ndarray (4,)` | Quaternion coefficients in `[x, y, z, w]` format. |
+
+### Methods
+
+| Method | Returns | Description |
+|---|---|---|
+| `matrix()` | `numpy.ndarray (3, 3)` | Rotation matrix. |
+| `inverse()` | `Rotation3d` | Inverse (conjugate) rotation. |
+| `normalize()` | `None` | Re-normalize the quaternion in-place. |
+| `norm()` | `float` | Quaternion norm. |
+| `angle()` | `float` | Rotation angle in radians. |
+| `angle_to(other)` | `float` | Angular distance to another rotation (radians). |
+
+### Operators
+
+```python
+r3 = r1 * r2          # Compose rotations
+p_rot = r * p_world   # Rotate a 3D point (np.array(3,))
+P_rot = r * P         # Rotate many points (np.ndarray(N, 3))
+```
+
+---
+
+## Sim3d
+
+A 3D similarity transformation: scale, rotation, and translation. Used as the return type of reconstruction alignment functions.
+
+### Constructor
+
+```python
+# Identity
+s = pycolmap.Sim3d()
+
+# From scale, rotation, translation
+s = pycolmap.Sim3d(scale, rotation, translation)
+# scale: float
+# rotation: pycolmap.Rotation3d
+# translation: numpy.ndarray (3,)
+
+# From 3×4 matrix (scale embedded in rotation)
+s = pycolmap.Sim3d.from_matrix(matrix34)
+```
+
+### Properties
+
+| Property | Type | Description |
+|---|---|---|
+| `scale` | `float` | Uniform scale factor. |
+| `rotation` | `pycolmap.Rotation3d` | Rotation component. |
+| `translation` | `numpy.ndarray (3,)` | Translation vector. |
+
+### Methods
+
+| Method | Returns | Description |
+|---|---|---|
+| `matrix()` | `numpy.ndarray (3, 4)` | 3×4 similarity transform matrix. |
+| `inverse()` | `Sim3d` | Inverse similarity transform. |
+| `transform_camera_world(t)` | `Rigid3d` | Apply this similarity to a `Rigid3d` camera pose. |
+
+### Operators
+
+```python
+s3 = s1 * s2         # Compose similarity transforms
+p2 = s * p_world     # Transform a 3D point (np.array(3,))
+P2 = s * P           # Transform many points (np.ndarray(N, 3))
+```
+
+### Example
+
+```python
+import pycolmap
+
+rec1 = pycolmap.Reconstruction("path/to/rec1")
+rec2 = pycolmap.Reconstruction("path/to/rec2")
+
+# Align rec1 into rec2's coordinate system
+sim3 = pycolmap.align_reconstructions_via_reprojections(rec1, rec2)
+
+print(f"Scale: {sim3.scale}")
+print(f"Rotation: {sim3.rotation.quat}")
+print(f"Translation: {sim3.translation}")
+
+# Apply the transform to rec1
+rec1.transform(sim3)
+```

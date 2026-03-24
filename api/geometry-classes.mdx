@@ -1,0 +1,159 @@
+---
+title: "Geometry Classes API"
+description: "API reference for pycolmap.Rigid3d, pycolmap.Rotation3d, and pycolmap.Sim3d."
+---
+
+See the [Geometry guide](/scene/geometry) for a conceptual overview and usage examples.
+
+## Rigid3d
+
+Rigid body transformation (rotation + translation). Used as the camera pose type throughout PyCOLMAP.
+
+### Constructors
+
+| Signature | Description |
+|---|---|
+| `Rigid3d()` | Identity transform. |
+| `Rigid3d(rotation, translation)` | From `Rotation3d` and `(3,)` array. |
+| `Rigid3d(matrix34)` | From 3×4 `[R \| t]` matrix. |
+
+### Properties
+
+<ResponseField name="rotation" type="pycolmap.Rotation3d">
+  Rotation component stored as a unit quaternion.
+</ResponseField>
+
+<ResponseField name="translation" type="numpy.ndarray (3,)">
+  Translation vector.
+</ResponseField>
+
+### Methods
+
+<ResponseField name="matrix()" type="numpy.ndarray (3, 4)">
+  Returns the 3×4 `[R | t]` matrix.
+</ResponseField>
+
+<ResponseField name="inverse()" type="pycolmap.Rigid3d">
+  Returns the inverse transform.
+</ResponseField>
+
+<ResponseField name="essential_matrix()" type="numpy.ndarray (3, 3)">
+  Computes the essential matrix corresponding to this relative pose.
+</ResponseField>
+
+<ResponseField name="Rigid3d.interpolate(t1, t2, alpha)" type="pycolmap.Rigid3d">
+  Spherically interpolates between two `Rigid3d` transforms at fraction `alpha`.
+</ResponseField>
+
+### Operators
+
+| Expression | Returns | Description |
+|---|---|---|
+| `t1 * t2` | `Rigid3d` | Compose transforms. |
+| `t * point` | `numpy.ndarray (3,)` | Transform a single point. |
+| `t * points` | `numpy.ndarray (N, 3)` | Transform N points. |
+
+---
+
+## Rotation3d
+
+3D rotation stored as a unit quaternion in `[x, y, z, w]` format.
+
+### Constructors
+
+| Signature | Description |
+|---|---|
+| `Rotation3d()` | Identity rotation. |
+| `Rotation3d(xyzw=...)` | From quaternion `(4,)` array. |
+| `Rotation3d(rotmat=...)` | From 3×3 rotation matrix. |
+| `Rotation3d(axis_angle=...)` | From axis-angle `(3,)` vector (magnitude = angle). |
+
+### Properties
+
+<ResponseField name="quat" type="numpy.ndarray (4,)">
+  Quaternion coefficients in `[x, y, z, w]` format (readable and writable).
+</ResponseField>
+
+### Methods
+
+<ResponseField name="matrix()" type="numpy.ndarray (3, 3)">
+  Returns the 3×3 rotation matrix.
+</ResponseField>
+
+<ResponseField name="inverse()" type="pycolmap.Rotation3d">
+  Returns the inverse (conjugate) rotation.
+</ResponseField>
+
+<ResponseField name="normalize()" type="None">
+  Re-normalizes the quaternion in-place.
+</ResponseField>
+
+<ResponseField name="norm()" type="float">
+  Returns the quaternion norm (should be 1.0 for valid rotations).
+</ResponseField>
+
+<ResponseField name="angle()" type="float">
+  Rotation angle in radians.
+</ResponseField>
+
+<ResponseField name="angle_to(other)" type="float">
+  Angular distance to `other` rotation in radians.
+</ResponseField>
+
+### Operators
+
+| Expression | Returns | Description |
+|---|---|---|
+| `r1 * r2` | `Rotation3d` | Compose rotations. |
+| `r * point` | `numpy.ndarray (3,)` | Rotate a single point. |
+| `r * points` | `numpy.ndarray (N, 3)` | Rotate N points. |
+
+---
+
+## Sim3d
+
+3D similarity transformation: uniform scale + rotation + translation.
+
+### Constructors
+
+| Signature | Description |
+|---|---|
+| `Sim3d()` | Identity. |
+| `Sim3d(scale, rotation, translation)` | From scalar, `Rotation3d`, and `(3,)` array. |
+| `Sim3d.from_matrix(matrix34)` | From 3×4 matrix with scale embedded. |
+
+### Properties
+
+<ResponseField name="scale" type="float">
+  Uniform scale factor (readable and writable).
+</ResponseField>
+
+<ResponseField name="rotation" type="pycolmap.Rotation3d">
+  Rotation component (readable and writable).
+</ResponseField>
+
+<ResponseField name="translation" type="numpy.ndarray (3,)">
+  Translation vector (readable and writable).
+</ResponseField>
+
+### Methods
+
+<ResponseField name="matrix()" type="numpy.ndarray (3, 4)">
+  Returns the 3×4 similarity transform matrix.
+</ResponseField>
+
+<ResponseField name="inverse()" type="pycolmap.Sim3d">
+  Returns the inverse similarity transform.
+</ResponseField>
+
+<ResponseField name="transform_camera_world(t)" type="pycolmap.Rigid3d">
+  Apply this similarity transform to a `Rigid3d` camera-from-world pose.
+</ResponseField>
+
+### Operators
+
+| Expression | Returns | Description |
+|---|---|---|
+| `s1 * s2` | `Sim3d` | Compose similarity transforms. |
+| `s * point` | `numpy.ndarray (3,)` | Transform a single point. |
+| `s * points` | `numpy.ndarray (N, 3)` | Transform N points. |

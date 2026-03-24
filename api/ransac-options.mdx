@@ -21,7 +21,7 @@ pycolmap.RANSACOptions(
 ## Fields
 
 <ParamField path="max_error" type="float" default="4.0">
-  Maximum residual for a correspondence to be considered an inlier. For image-space estimators (fundamental matrix, homography) this is the Sampson distance or reprojection error in pixels. For homogeneous residuals, set `max_error_is_squared=True` and provide the squared threshold.
+  Maximum residual for a correspondence to be considered an inlier. For image-space estimators (fundamental matrix, homography) this is the Sampson distance or reprojection error in pixels.
 </ParamField>
 
 <ParamField path="min_inlier_ratio" type="float" default="0.01">
@@ -57,7 +57,7 @@ pycolmap.RANSACOptions(
 | `pycolmap.essential_matrix_estimation()` | Sampson residual in pixels |
 | `pycolmap.fundamental_matrix_estimation()` | Sampson residual in pixels |
 | `pycolmap.homography_matrix_estimation()` | Symmetric transfer error in pixels |
-| `pycolmap.pose_from_points()` (P3P / EPnP) | Reprojection error in pixels |
+| `pycolmap.absolute_pose_estimation()` | Reprojection error in pixels (default `max_error=12.0`) |
 
 ```python
 opts = pycolmap.RANSACOptions()

@@ -1,0 +1,258 @@
+---
+title: "Alignment functions"
+description: "Align two COLMAP reconstructions or align a reconstruction to known GPS/location priors using similarity transforms."
+---
+
+PyCOLMAP provides four alignment functions that compute a `Sim3d` similarity transform mapping one reconstruction's coordinate system to another's.
+
+<CardGroup cols={2}>
+  <Card title="align_reconstructions_via_reprojections" icon="crosshairs">
+    Align via image-level reprojection error — most robust for accurate models.
+  </Card>
+  <Card title="align_reconstructions_via_proj_centers" icon="camera">
+    Align via camera projection centers — fast when centers are reliable.
+  </Card>
+  <Card title="align_reconstructions_via_points" icon="location-dot">
+    Align via shared 3D point tracks — useful when image names differ.
+  </Card>
+  <Card title="align_reconstrution_to_locations" icon="map-pin">
+    Align to GPS or known world locations for geo-registration.
+  </Card>
+</CardGroup>
+
+---
+
+## align_reconstructions_via_reprojections
+
+Compute a `Sim3d` transform that aligns `src_reconstruction` to `tgt_reconstruction` by minimizing reprojection errors for shared images.
+
+```python
+sim3 = pycolmap.align_reconstructions_via_reprojections(
+    src_reconstruction,
+    tgt_reconstruction,
+    min_inlier_observations = 0.3,
+    max_reproj_error        = 8.0,
+)
+```
+
+<ParamField path="src_reconstruction" type="pycolmap.Reconstruction" required>
+  The source reconstruction to be aligned.
+</ParamField>
+
+<ParamField path="tgt_reconstruction" type="pycolmap.Reconstruction" required>
+  The target reconstruction defining the reference coordinate system.
+</ParamField>
+
+<ParamField path="min_inlier_observations" type="float" default="0.3">
+  Minimum fraction of images that must be inliers (0.0–1.0) for the alignment to succeed.
+</ParamField>
+
+<ParamField path="max_reproj_error" type="float" default="8.0">
+  Maximum reprojection error in pixels for an image to be considered an inlier.
+</ParamField>
+
+**Returns:** `pycolmap.Sim3d` — the transform that maps `src` coordinates into `tgt` coordinates. Raises if alignment fails.
+
+---
+
+## align_reconstructions_via_proj_centers
+
+Align two reconstructions by matching their camera projection centers for shared image names.
+
+```python
+sim3 = pycolmap.align_reconstructions_via_proj_centers(
+    src_reconstruction,
+    tgt_reconstruction,
+    max_proj_center_error,
+)
+```
+
+<ParamField path="src_reconstruction" type="pycolmap.Reconstruction" required>
+  The source reconstruction.
+</ParamField>
+
+<ParamField path="tgt_reconstruction" type="pycolmap.Reconstruction" required>
+  The target reconstruction.
+</ParamField>
+
+<ParamField path="max_proj_center_error" type="float" required>
+  Maximum distance between matched projection centers (in target reconstruction units) for an image pair to be an inlier.
+</ParamField>
+
+**Returns:** `pycolmap.Sim3d`. Raises if alignment fails.
+
+---
+
+## align_reconstructions_via_points
+
+Align two reconstructions using their shared 3D point tracks.
+
+```python
+sim3 = pycolmap.align_reconstructions_via_points(
+    src_reconstruction,
+    tgt_reconstruction,
+    min_common_observations = 3,
+    max_error               = 0.005,
+    min_inlier_ratio        = 0.9,
+)
+```
+
+<ParamField path="src_reconstruction" type="pycolmap.Reconstruction" required>
+  The source reconstruction.
+</ParamField>
+
+<ParamField path="tgt_reconstruction" type="pycolmap.Reconstruction" required>
+  The target reconstruction.
+</ParamField>
+
+<ParamField path="min_common_observations" type="int" default="3">
+  Minimum number of shared point observations required.
+</ParamField>
+
+<ParamField path="max_error" type="float" default="0.005">
+  Maximum 3D point distance after alignment for an observation to be an inlier.
+</ParamField>
+
+<ParamField path="min_inlier_ratio" type="float" default="0.9">
+  Minimum fraction of inlier observations (0.0–1.0).
+</ParamField>
+
+**Returns:** `pycolmap.Sim3d`. Raises if alignment fails.
+
+---
+
+## align_reconstrution_to_locations
+
+Align a reconstruction to known world locations (e.g., GPS coordinates) using a list of image names and their corresponding 3D positions.
+
+```python
+sim3 = pycolmap.align_reconstrution_to_locations(
+    src,
+    image_names,
+    locations,
+    min_common_points,
+    ransac_options,
+)
+```
+
+<ParamField path="src" type="pycolmap.Reconstruction" required>
+  The reconstruction to geo-register.
+</ParamField>
+
+<ParamField path="image_names" type="list[str]" required>
+  Names of images whose locations are known.
+</ParamField>
+
+<ParamField path="locations" type="list[numpy.ndarray (3,)]" required>
+  Known 3D world coordinates (e.g., ECEF or local ENU) for each image. Must have the same length as `image_names`.
+</ParamField>
+
+<ParamField path="min_common_points" type="int" required>
+  Minimum number of images required for alignment (must be ≥ 3).
+</ParamField>
+
+<ParamField path="ransac_options" type="pycolmap.RANSACOptions" required>
+  RANSAC options for outlier-robust alignment.
+</ParamField>
+
+**Returns:** `pycolmap.Sim3d`. Raises if alignment fails.
+
+---
+
+## compare_reconstructions
+
+Compare two reconstructions by computing per-image alignment errors.
+
+```python
+result = pycolmap.compare_reconstructions(
+    reconstruction1,
+    reconstruction2,
+    alignment_error         = "reprojection",
+    min_inlier_observations = 0.3,
+    max_reproj_error        = 8.0,
+    max_proj_center_error   = 0.1,
+)
+```
+
+**Returns:** `dict` with:
+- `rec2_from_rec1` (`pycolmap.Sim3d`) — alignment transform.
+- `errors` (list of `pycolmap.ImageAlignmentError`) — per-image errors with fields `image_name`, `rotation_error_deg`, `proj_center_error`.
+
+---
+
+## ImageAlignmentError
+
+<ResponseField name="image_name" type="str">
+  Name of the image.
+</ResponseField>
+
+<ResponseField name="rotation_error_deg" type="float">
+  Rotation error in degrees between the two reconstructions for this image.
+</ResponseField>
+
+<ResponseField name="proj_center_error" type="float">
+  Distance between the two projection centers after alignment.
+</ResponseField>
+
+---
+
+## Examples
+
+<CodeGroup>
+
+```python Align and apply transform
+import pycolmap
+
+rec1 = pycolmap.Reconstruction("path/to/rec1")
+rec2 = pycolmap.Reconstruction("path/to/rec2")
+
+# Find the Sim3d that maps rec1 into rec2's coordinate system
+sim3 = pycolmap.align_reconstructions_via_reprojections(rec1, rec2)
+print(f"Scale: {sim3.scale:.4f}")
+
+# Apply the alignment to rec1 in-place
+rec1.transform(sim3)
+rec1.write("path/to/rec1_aligned")
+```
+
+```python GPS geo-registration
+import numpy as np
+import pycolmap
+
+reconstruction = pycolmap.Reconstruction("path/to/sfm")
+
+# Known GPS positions for a subset of images (ECEF or local ENU)
+image_names = ["frame001.jpg", "frame002.jpg", "frame003.jpg"]
+locations   = [
+    np.array([0.0, 0.0, 0.0]),
+    np.array([1.2, 0.3, 0.0]),
+    np.array([2.5, 0.1, 0.0]),
+]
+
+ransac_opts = pycolmap.RANSACOptions()
+ransac_opts.max_error = 0.01
+
+sim3 = pycolmap.align_reconstrution_to_locations(
+    reconstruction,
+    image_names,
+    locations,
+    min_common_points=3,
+    ransac_options=ransac_opts,
+)
+
+reconstruction.transform(sim3)
+```
+
+```python Compare two reconstructions
+import pycolmap
+
+rec1 = pycolmap.Reconstruction("path/to/rec_gt")
+rec2 = pycolmap.Reconstruction("path/to/rec_est")
+
+result = pycolmap.compare_reconstructions(rec1, rec2)
+for err in result["errors"]:
+    print(f"{err.image_name}: rot={err.rotation_error_deg:.2f}°, "
+          f"center={err.proj_center_error:.4f}m")
+```
+
+</CodeGroup>

@@ -1,0 +1,177 @@
+---
+title: "bundle_adjustment"
+description: "Jointly refine 3D points and camera poses in an existing reconstruction using Ceres-based bundle adjustment."
+---
+
+## Function signature
+
+```python
+pycolmap.bundle_adjustment(
+    reconstruction,
+    options = pycolmap.BundleAdjustmentOptions(),
+)
+```
+
+Refines all registered camera poses and 3D point positions in `reconstruction` in-place using Ceres non-linear least squares.
+
+## Parameters
+
+<ParamField path="reconstruction" type="pycolmap.Reconstruction" required>
+  The reconstruction to refine. Camera poses and 3D points are updated in-place.
+</ParamField>
+
+<ParamField path="options" type="pycolmap.BundleAdjustmentOptions">
+  Bundle adjustment configuration. See [BundleAdjustmentOptions](#bundleadjustmentoptions) below.
+</ParamField>
+
+## Return value
+
+<ResponseField name="return" type="None">
+  Returns `None`. The `reconstruction` object is modified in-place.
+</ResponseField>
+
+## BundleAdjustmentOptions
+
+<ParamField path="loss_function_type" type="pycolmap.LossFunctionType" default="LossFunctionType.TRIVIAL">
+  Robust loss function to use.
+
+  - `TRIVIAL` — Standard squared loss (non-robust).
+  - `SOFT_L1` — Smooth approximation of L1 loss.
+  - `CAUCHY` — Cauchy robust loss, good for outlier-contaminated data.
+</ParamField>
+
+<ParamField path="loss_function_scale" type="float">
+  Scale parameter for the robust loss function. Determines the residual value at which robustification takes effect.
+</ParamField>
+
+<ParamField path="refine_focal_length" type="bool" default="True">
+  Whether to optimize the focal length parameter during bundle adjustment.
+</ParamField>
+
+<ParamField path="refine_principal_point" type="bool" default="False">
+  Whether to optimize the principal point (cx, cy) during bundle adjustment.
+</ParamField>
+
+<ParamField path="refine_extra_params" type="bool" default="True">
+  Whether to optimize extra camera parameters (e.g., distortion coefficients).
+</ParamField>
+
+<ParamField path="refine_extrinsics" type="bool" default="True">
+  Whether to optimize the camera extrinsics (rotation and translation).
+</ParamField>
+
+<ParamField path="print_summary" type="bool" default="True">
+  If `True`, print a Ceres solver summary after optimization.
+</ParamField>
+
+<ParamField path="min_num_residuals_for_multi_threading" type="int">
+  Minimum number of residuals to enable multi-threaded solving. Single-threaded solving is typically faster for small problems due to threading overhead.
+</ParamField>
+
+<ParamField path="solver_options" type="pycolmap.CeresSolverOptions">
+  Low-level Ceres solver configuration. See [CeresSolverOptions](#ceressolveroptions) below.
+</ParamField>
+
+## LossFunctionType enum
+
+```python
+pycolmap.LossFunctionType.TRIVIAL   # Standard squared loss
+pycolmap.LossFunctionType.SOFT_L1   # Smooth L1
+pycolmap.LossFunctionType.CAUCHY    # Cauchy robust loss
+```
+
+## CeresSolverOptions
+
+<ParamField path="function_tolerance" type="float">
+  Solver stops when the relative decrease in the objective function is less than this value.
+</ParamField>
+
+<ParamField path="gradient_tolerance" type="float">
+  Solver stops when the gradient norm is less than this value.
+</ParamField>
+
+<ParamField path="parameter_tolerance" type="float">
+  Solver stops when the step norm is less than this value.
+</ParamField>
+
+<ParamField path="max_num_iterations" type="int">
+  Maximum number of Ceres iterations.
+</ParamField>
+
+<ParamField path="max_linear_solver_iterations" type="int">
+  Maximum number of iterations for the linear solver (e.g., PCG).
+</ParamField>
+
+<ParamField path="max_num_consecutive_invalid_steps" type="int">
+  Maximum number of consecutive invalid (non-decreasing) steps before stopping.
+</ParamField>
+
+<ParamField path="max_consecutive_nonmonotonic_steps" type="int">
+  Maximum number of non-monotonic steps before stopping.
+</ParamField>
+
+<ParamField path="num_threads" type="int">
+  Number of threads for the Jacobian evaluation.
+</ParamField>
+
+<ParamField path="minimizer_progress_to_stdout" type="bool">
+  Whether to print per-iteration progress to stdout.
+</ParamField>
+
+## Examples
+
+<CodeGroup>
+
+```python Minimal
+import pycolmap
+
+reconstruction = pycolmap.Reconstruction("path/to/sfm")
+
+# Run bundle adjustment with default options
+pycolmap.bundle_adjustment(reconstruction)
+
+# Save the refined reconstruction
+reconstruction.write("path/to/sfm_refined")
+```
+
+```python With options
+import pycolmap
+
+reconstruction = pycolmap.Reconstruction("path/to/sfm")
+
+opts = pycolmap.BundleAdjustmentOptions()
+opts.loss_function_type = pycolmap.LossFunctionType.CAUCHY
+opts.loss_function_scale = 1.0
+opts.refine_focal_length = True
+opts.refine_principal_point = False
+opts.print_summary = True
+
+pycolmap.bundle_adjustment(reconstruction, options=opts)
+```
+
+```python After incremental mapping
+import pathlib
+import pycolmap
+
+output_path = pathlib.Path("output/")
+image_dir   = pathlib.Path("images/")
+database_path = output_path / "database.db"
+
+output_path.mkdir(exist_ok=True)
+pycolmap.extract_features(database_path, image_dir)
+pycolmap.match_exhaustive(database_path)
+maps = pycolmap.incremental_mapping(database_path, image_dir, output_path)
+
+# Run global bundle adjustment on the largest reconstruction
+rec = maps[0]
+ba_opts = pycolmap.BundleAdjustmentOptions()
+ba_opts.refine_focal_length = True
+pycolmap.bundle_adjustment(rec, options=ba_opts)
+rec.write(output_path)
+```
+
+</CodeGroup>
+
+<Note>
+  Bundle adjustment is automatically run during incremental mapping (local and global BA at regular intervals). Call `bundle_adjustment()` directly when you want to run a final refinement pass on a completed reconstruction or when refining a reconstruction loaded from disk.
+</Note>
