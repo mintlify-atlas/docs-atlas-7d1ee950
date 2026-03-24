@@ -1,0 +1,265 @@
+---
+title: "extract_features"
+description: "Detect SIFT keypoints and compute 128-dimensional descriptors for every image, writing results to a SQLite database."
+---
+
+## Function signature
+
+```python
+pycolmap.extract_features(
+    database_path,                                      # Path to new .db file (must not exist)
+    image_path,                                         # Directory containing input images
+    image_list      = [],                               # Optional subset of filenames
+    camera_mode     = pycolmap.CameraMode.AUTO,
+    camera_model    = "SIMPLE_RADIAL",
+    reader_options  = pycolmap.ImageReaderOptions(),
+    sift_options    = pycolmap.SiftExtractionOptions(),
+    device          = pycolmap.Device.AUTO,
+)
+```
+
+<Warning>
+  `database_path` must not already exist. The function raises an error if the file is present. Delete or rename any existing database before running extraction.
+</Warning>
+
+## Parameters
+
+<ParamField path="database_path" type="str or Path" required>
+  Path to the SQLite database file to create. Must have a `.db` extension and must not already exist.
+</ParamField>
+
+<ParamField path="image_path" type="str or Path" required>
+  Directory containing the input images. All images in the directory are processed unless `image_list` restricts the set.
+</ParamField>
+
+<ParamField path="image_list" type="list[str]" default="[]">
+  Optional subset of image filenames (relative to `image_path`) to process. When empty, all images in `image_path` are processed.
+</ParamField>
+
+<ParamField path="camera_mode" type="pycolmap.CameraMode" default="CameraMode.AUTO">
+  Controls how cameras are assigned to images.
+
+  - `AUTO` — share a camera across images that have identical EXIF intrinsics.
+  - `SINGLE` — all images share one camera model.
+  - `PER_FOLDER` — images in the same subfolder share a camera.
+  - `PER_IMAGE` — each image gets its own camera model.
+</ParamField>
+
+<ParamField path="camera_model" type="str" default="SIMPLE_RADIAL">
+  COLMAP camera model name used when no EXIF data is available. Common values: `SIMPLE_PINHOLE`, `PINHOLE`, `SIMPLE_RADIAL`, `RADIAL`, `OPENCV`, `FULL_OPENCV`.
+</ParamField>
+
+<ParamField path="reader_options" type="pycolmap.ImageReaderOptions">
+  Image reader configuration. See [ImageReaderOptions](#imagereaderoptionsoptions) below.
+</ParamField>
+
+<ParamField path="sift_options" type="pycolmap.SiftExtractionOptions">
+  SIFT extractor configuration. See [SiftExtractionOptions](#siftextractionoptions) below.
+</ParamField>
+
+<ParamField path="device" type="pycolmap.Device" default="Device.AUTO">
+  Compute device. `AUTO` selects the GPU when available and falls back to CPU. Use `Device.CUDA` to require GPU or `Device.CPU` to force CPU.
+</ParamField>
+
+## Return value
+
+<ResponseField name="return" type="None">
+  Returns `None`. All extracted features are written directly to `database_path`.
+</ResponseField>
+
+## SiftExtractionOptions
+
+Construct with `pycolmap.SiftExtractionOptions()` and set fields, or pass a `dict` of field names.
+
+```python
+opts = pycolmap.SiftExtractionOptions()
+opts.max_num_features = 4096
+pycolmap.extract_features(database_path, image_dir, sift_options=opts)
+
+# Equivalent dict form
+pycolmap.extract_features(
+    database_path,
+    image_dir,
+    sift_options={"max_num_features": 4096},
+)
+```
+
+<ParamField path="num_threads" type="int">
+  Number of threads for feature extraction.
+</ParamField>
+
+<ParamField path="gpu_index" type="str">
+  Index of the GPU to use. For multi-GPU extraction, separate indices with commas, e.g. `"0,1,2,3"`.
+</ParamField>
+
+<ParamField path="max_image_size" type="int">
+  Maximum image dimension in pixels. Images larger than this are downscaled before extraction.
+</ParamField>
+
+<ParamField path="max_num_features" type="int">
+  Maximum number of features to retain per image. When the limit is reached, the largest-scale features are kept.
+</ParamField>
+
+<ParamField path="first_octave" type="int">
+  First octave in the scale-space pyramid. Setting this to `-1` upsamples the image by one level, enabling detection of very small features.
+</ParamField>
+
+<ParamField path="num_octaves" type="int">
+  Number of octaves in the scale-space pyramid.
+</ParamField>
+
+<ParamField path="octave_resolution" type="int">
+  Number of scale levels per octave.
+</ParamField>
+
+<ParamField path="peak_threshold" type="float">
+  Minimum peak value for a keypoint to be accepted during detection.
+</ParamField>
+
+<ParamField path="edge_threshold" type="float">
+  Threshold for filtering keypoints that lie on edges rather than corners.
+</ParamField>
+
+<ParamField path="estimate_affine_shape" type="bool">
+  When `True`, estimates the affine shape of each feature (oriented ellipse). When `False`, uses the standard oriented disk shape.
+</ParamField>
+
+<ParamField path="max_num_orientations" type="int">
+  Maximum number of orientations assigned to each keypoint when `estimate_affine_shape` is `False`.
+</ParamField>
+
+<ParamField path="upright" type="bool">
+  When `True`, fixes orientation to 0, producing upright features. Useful when images are known to be upright and rotation invariance is not needed.
+</ParamField>
+
+<ParamField path="darkness_adaptivity" type="bool">
+  Adapt keypoint detection to image darkness. Only available when running on GPU.
+</ParamField>
+
+<ParamField path="domain_size_pooling" type="bool">
+  Enable Domain-Size Pooling (DSP-SIFT). Produces descriptors that pool over multiple scales. See Dong & Soatto, CVPR 2015.
+</ParamField>
+
+<ParamField path="dsp_min_scale" type="float">
+  Minimum scale factor for DSP pooling.
+</ParamField>
+
+<ParamField path="dsp_max_scale" type="float">
+  Maximum scale factor for DSP pooling.
+</ParamField>
+
+<ParamField path="dsp_num_scales" type="int">
+  Number of scale levels sampled between `dsp_min_scale` and `dsp_max_scale`.
+</ParamField>
+
+<ParamField path="normalization" type="pycolmap.Normalization" default="Normalization.L1_ROOT">
+  Descriptor normalization strategy.
+
+  - `L1_ROOT` — L1-normalize then apply element-wise square root. Generally outperforms L2 (Arandjelovic & Zisserman, CVPR 2012).
+  - `L2` — Standard L2 normalization.
+</ParamField>
+
+## ImageReaderOptions
+
+<ParamField path="camera_model" type="str" default="SIMPLE_RADIAL">
+  Name of the camera model to use when creating new cameras.
+</ParamField>
+
+<ParamField path="mask_path" type="str">
+  Root path to a folder containing per-image PNG masks. For an image at `image_path/abc/012.jpg`, the mask must be at `mask_path/abc/012.jpg.png`. Features are not extracted in black (intensity 0) mask regions.
+</ParamField>
+
+<ParamField path="existing_camera_id" type="int">
+  When set, forces all images to use the camera with this database ID. Camera model and parameter settings are ignored.
+</ParamField>
+
+<ParamField path="camera_params" type="str">
+  Manual camera parameter string. When empty, parameters are read from EXIF (principal point and focal length).
+</ParamField>
+
+<ParamField path="default_focal_length_factor" type="float">
+  When no EXIF focal length is available, sets focal length to `default_focal_length_factor × max(width, height)`.
+</ParamField>
+
+<ParamField path="camera_mask_path" type="str">
+  Path to a single PNG mask image applied uniformly to all images. Features are not extracted in black mask regions.
+</ParamField>
+
+## GPU vs CPU
+
+`Device.AUTO` selects the GPU when COLMAP was compiled with CUDA support. GPU extraction is significantly faster for large image sets.
+
+<Note>
+  The pre-built PyPI wheels do not include CUDA support. To use GPU extraction, build PyCOLMAP from source with a CUDA-enabled COLMAP installation.
+</Note>
+
+<CodeGroup>
+
+```python GPU extraction
+pycolmap.extract_features(
+    database_path,
+    image_dir,
+    device=pycolmap.Device.CUDA,
+)
+```
+
+```python CPU extraction
+pycolmap.extract_features(
+    database_path,
+    image_dir,
+    device=pycolmap.Device.CPU,
+)
+```
+
+</CodeGroup>
+
+## Examples
+
+<CodeGroup>
+
+```python Minimal
+import pycolmap
+from pathlib import Path
+
+database_path = Path("output/database.db")
+image_dir = Path("images/")
+
+pycolmap.extract_features(database_path, image_dir)
+```
+
+```python With custom SIFT options
+import pycolmap
+from pathlib import Path
+
+database_path = Path("output/database.db")
+image_dir = Path("images/")
+
+sift_opts = pycolmap.SiftExtractionOptions()
+sift_opts.max_num_features = 2048
+sift_opts.estimate_affine_shape = True
+sift_opts.normalization = pycolmap.Normalization.L2
+
+pycolmap.extract_features(
+    database_path,
+    image_dir,
+    sift_options=sift_opts,
+)
+```
+
+```python Single camera with specific model
+import pycolmap
+from pathlib import Path
+
+database_path = Path("output/database.db")
+image_dir = Path("images/")
+
+pycolmap.extract_features(
+    database_path,
+    image_dir,
+    camera_mode=pycolmap.CameraMode.SINGLE,
+    camera_model="OPENCV",
+    image_list=["frame_001.jpg", "frame_002.jpg", "frame_003.jpg"],
+)
+```
+
+</CodeGroup>

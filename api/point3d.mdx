@@ -1,0 +1,188 @@
+---
+title: "Point3D, Track, Point2D"
+description: "3D point with RGB color and track, track elements linking points to image keypoints, and 2D keypoint descriptors."
+---
+
+## pycolmap.Point3D
+
+A single triangulated 3D point.
+
+```python
+import pycolmap
+
+p = pycolmap.Point3D()
+p.xyz = [1.0, 2.0, 3.0]
+p.color = [128, 64, 200]
+p.error = 0.45
+```
+
+### Properties
+
+<ResponseField name="xyz" type="numpy.ndarray (3,) float64">
+  3D position in world coordinates. Writable.
+</ResponseField>
+
+<ResponseField name="color" type="numpy.ndarray (3,) uint8">
+  RGB color as an 8-bit integer triplet. Writable.
+</ResponseField>
+
+<ResponseField name="error" type="float">
+  Mean reprojection error in pixels across all track observations. Writable.
+</ResponseField>
+
+<ResponseField name="track" type="pycolmap.Track">
+  The set of image observations (image ID + keypoint index) that produced this point. Writable.
+</ResponseField>
+
+---
+
+## pycolmap.Track
+
+A collection of `TrackElement` objects recording which image keypoints observe a single 3D point.
+
+### Constructor
+
+```python
+# Empty track
+track = pycolmap.Track()
+
+# From a list of TrackElements
+elements = [
+    pycolmap.TrackElement(image_id=1, point2D_idx=42),
+    pycolmap.TrackElement(image_id=2, point2D_idx=17),
+]
+track = pycolmap.Track(elements)
+```
+
+### Properties
+
+<ResponseField name="elements" type="list[pycolmap.TrackElement]">
+  The list of track elements. Writable — assign a new list to replace all elements.
+</ResponseField>
+
+### Methods
+
+#### `length()`
+
+Return the number of observations in the track.
+
+```python
+print(track.length())  # 2
+```
+
+#### `add_element(image_id, point2D_idx)`
+
+Append a new observation to the track.
+
+<ParamField path="image_id" type="int" required>
+  ID of the observing image.
+</ParamField>
+
+<ParamField path="point2D_idx" type="int" required>
+  Index of the keypoint within the image's `points2D` list.
+</ParamField>
+
+#### `add_elements(elements)`
+
+Append a list of `TrackElement` objects at once.
+
+#### `append(track_element)`
+
+Append a single `TrackElement` object.
+
+#### `delete_element(image_id, point2D_idx)`
+
+Remove the observation identified by `(image_id, point2D_idx)`.
+
+#### `remove(index)` / `remove(image_id, point2D_idx)`
+
+Remove by position index, or by `(image_id, point2D_idx)` pair.
+
+---
+
+## pycolmap.TrackElement
+
+A single observation record linking a 3D point to one keypoint in one image.
+
+### Constructor
+
+```python
+el = pycolmap.TrackElement()                            # default
+el = pycolmap.TrackElement(image_id=3, point2D_idx=88)  # with values
+```
+
+### Properties
+
+<ResponseField name="image_id" type="int">
+  ID of the image that observes the 3D point. Writable.
+</ResponseField>
+
+<ResponseField name="point2D_idx" type="int">
+  Index of the corresponding 2D keypoint within the image. Writable.
+</ResponseField>
+
+---
+
+## pycolmap.Point2D
+
+A 2D keypoint stored in an image, optionally linked to a 3D point.
+
+### Constructor
+
+```python
+p = pycolmap.Point2D()                       # default
+p = pycolmap.Point2D(xy=[320.5, 240.0])      # with position, no 3D link
+p = pycolmap.Point2D(xy=[320.5, 240.0], point3D_id=17)  # with 3D link
+```
+
+### Properties
+
+<ResponseField name="xy" type="numpy.ndarray (2,) float64">
+  Pixel position (x, y) of the keypoint. Writable.
+</ResponseField>
+
+<ResponseField name="point3D_id" type="int">
+  ID of the associated 3D point, or `INVALID_POINT3D_ID` if not triangulated. Writable.
+</ResponseField>
+
+### Methods
+
+#### `has_point3D()`
+
+Return `True` if `point3D_id` is set to a valid (non-invalid) value.
+
+```python
+p = pycolmap.Point2D(xy=[100.0, 200.0])
+print(p.has_point3D())   # False
+p.point3D_id = 42
+print(p.has_point3D())   # True
+```
+
+---
+
+## Examples
+
+```python
+import pycolmap
+
+rec = pycolmap.Reconstruction("/sparse/0")
+
+# Inspect a 3D point and its track
+for p3d_id, p3d in rec.points3D.items():
+    print(f"Point {p3d_id}: xyz={p3d.xyz}, error={p3d.error:.3f}")
+    for el in p3d.track.elements:
+        img_name = rec.images[el.image_id].name
+        print(f"  observed in {img_name} at keypoint {el.point2D_idx}")
+    break
+
+# Build a track manually and add a new 3D point
+track = pycolmap.Track([
+    pycolmap.TrackElement(1, 55),
+    pycolmap.TrackElement(2, 31),
+])
+new_id = rec.add_point3D(
+    xyz=[1.2, -0.4, 8.1],
+    track=track,
+    color=[200, 180, 160],
+)
+```

@@ -1,0 +1,344 @@
+---
+title: "Reconstruction"
+description: "Container for a complete 3D reconstruction: registered images, cameras, and 3D points."
+---
+
+## Class signature
+
+```python
+pycolmap.Reconstruction(sfm_dir=None)
+```
+
+Holds all data produced by structure-from-motion: a set of registered images, their cameras, and the triangulated 3D point cloud.
+
+## Constructor
+
+<ParamField path="sfm_dir" type="str or Path" default="None">
+  Path to an existing reconstruction directory. The directory must contain either binary (`cameras.bin`, `images.bin`, `points3D.bin`) or text (`cameras.txt`, `images.txt`, `points3D.txt`) files. When omitted, an empty reconstruction is created.
+</ParamField>
+
+```python
+import pycolmap
+
+# Load from disk
+rec = pycolmap.Reconstruction("/path/to/sparse/0")
+
+# Or start empty
+rec = pycolmap.Reconstruction()
+```
+
+## Properties
+
+<ResponseField name="images" type="MapImageIdToImage">
+  Read-only mapping from `image_id` (int) to [`Image`](/api/image) objects for every image known to the reconstruction (registered and unregistered).
+</ResponseField>
+
+<ResponseField name="cameras" type="MapCameraIdToCamera">
+  Read-only mapping from `camera_id` (int) to [`Camera`](/api/camera) objects.
+</ResponseField>
+
+<ResponseField name="points3D" type="MapPoint3DIdToPoint3D">
+  Read-only mapping from `point3D_id` (int) to [`Point3D`](/api/point3d) objects.
+</ResponseField>
+
+<ResponseField name="image_pairs" type="dict">
+  Read-only mapping of image pair statistics tracked by the reconstruction.
+</ResponseField>
+
+## Count methods
+
+<ResponseField name="num_images()" type="int">
+  Total number of images in the reconstruction (registered and unregistered).
+</ResponseField>
+
+<ResponseField name="num_reg_images()" type="int">
+  Number of registered (posed) images.
+</ResponseField>
+
+<ResponseField name="num_cameras()" type="int">
+  Number of cameras.
+</ResponseField>
+
+<ResponseField name="num_points3D()" type="int">
+  Number of 3D points.
+</ResponseField>
+
+<ResponseField name="num_image_pairs()" type="int">
+  Number of image pairs tracked by the reconstruction.
+</ResponseField>
+
+## I/O methods
+
+### `read(sfm_dir)`
+
+Read a reconstruction from disk. Prefers binary format; falls back to text.
+
+<ParamField path="sfm_dir" type="str or Path" required>
+  Directory containing `cameras.*`, `images.*`, and `points3D.*` files.
+</ParamField>
+
+### `read_text(input_path)`
+
+Read from text format (`*.txt` files) only.
+
+### `read_binary(input_path)`
+
+Read from binary format (`*.bin` files) only.
+
+### `write(output_dir)`
+
+Write the reconstruction in COLMAP binary format.
+
+<ParamField path="output_dir" type="str or Path" required>
+  Existing directory where `cameras.bin`, `images.bin`, and `points3D.bin` will be written.
+</ParamField>
+
+### `write_text(path)`
+
+Write the reconstruction in COLMAP text format (`*.txt`).
+
+### `write_binary(path)`
+
+Write the reconstruction in COLMAP binary format (`*.bin`).
+
+## Export methods
+
+### `export_PLY(output_path)`
+
+Export the 3D point cloud to PLY format.
+
+<ParamField path="output_path" type="str or Path" required>
+  Output file path. Must have a `.ply` extension.
+</ParamField>
+
+### `export_NVM(output_path, skip_distortion=False)`
+
+Export in NVM format. Only `SIMPLE_RADIAL` supports distortion export; use `skip_distortion=True` for other models.
+
+### `export_CAM(output_dir, skip_distortion=False)`
+
+Export per-image CAM pose files to a directory.
+
+### `export_bundler(output_path, list_path, skip_distortion=False)`
+
+Export in Bundler format. `output_path` must end in `.out`; `list_path` in `.txt`.
+
+### `export_VRML(images_path, points3D_path, image_scale=1.0, image_rgb=[1,0,0])`
+
+Export cameras and points as VRML (`.wrl`) files.
+
+### `import_PLY(path)`
+
+Import 3D points from a PLY file. Intended for visualization only, not reconstruction.
+
+## Mutation methods
+
+### `add_camera(camera)`
+
+Add a new [`Camera`](/api/camera). The camera's `camera_id` must not already exist in the reconstruction, and its parameters must pass `verify_params()`.
+
+### `add_image(image)`
+
+Add a new [`Image`](/api/image). The image's `image_id` must not already exist.
+
+### `add_point3D(xyz, track, color=[0,0,0])`
+
+Add a new 3D point and return its assigned `point3D_id`.
+
+<ParamField path="xyz" type="numpy.ndarray" required>
+  3D position as a length-3 array.
+</ParamField>
+
+<ParamField path="track" type="pycolmap.Track" required>
+  Track of image observations that gave rise to this point.
+</ParamField>
+
+<ParamField path="color" type="numpy.ndarray" default="[0, 0, 0]">
+  RGB color as a length-3 uint8 array.
+</ParamField>
+
+### `add_observation(point3D_id, track_element)`
+
+Add an observation to an existing 3D point.
+
+### `delete_point3D(point3D_id)`
+
+Delete a 3D point and remove all its references from observed images.
+
+### `delete_observation(image_id, point2D_idx)`
+
+Delete one observation from an image. If the resulting track has fewer than two elements, the 3D point is also deleted.
+
+### `merge_points3D(point3D_id1, point3D_id2)`
+
+Merge two 3D points. Returns the `point3D_id` of the merged result. The new location is a track-length-weighted average of the two input positions.
+
+### `register_image(image_id)`
+
+Mark an existing image as registered (posed).
+
+### `deregister_image(image_id)`
+
+Remove a registered image and all its references.
+
+## Query methods
+
+### `find_image_with_name(name)`
+
+Return the [`Image`](/api/image) whose `name` matches exactly, or `None` if no match is found.
+
+<ParamField path="name" type="str" required>
+  Exact image name to search for.
+</ParamField>
+
+### `find_common_reg_image_ids(other)`
+
+Return image IDs that are registered in both this reconstruction and `other`.
+
+### `exists_camera(camera_id)` / `exists_image(image_id)` / `exists_point3D(point3D_id)`
+
+Return `True` if the entity with the given ID exists.
+
+### `is_image_registered(image_id)`
+
+Return `True` if the image has been registered.
+
+### `reg_image_ids()`
+
+Return a list of all registered image IDs.
+
+### `point3D_ids()`
+
+Return a list of all 3D point IDs.
+
+## Filter methods
+
+### `filter_points3D(max_reproj_error, min_tri_angle, point3D_ids)`
+
+Filter a specific set of 3D points. Returns the number of filtered observations.
+
+<ParamField path="max_reproj_error" type="float" required>
+  Maximum allowed reprojection error in pixels.
+</ParamField>
+
+<ParamField path="min_tri_angle" type="float" required>
+  Minimum triangulation angle in degrees.
+</ParamField>
+
+<ParamField path="point3D_ids" type="list[int]" required>
+  IDs of the points to consider.
+</ParamField>
+
+### `filter_points3D_in_images(max_reproj_error, min_tri_angle, image_ids)`
+
+Filter 3D points visible in a given set of images. Returns the number of filtered observations.
+
+### `filter_all_points3D(max_reproj_error, min_tri_angle)`
+
+Filter all 3D points. Returns the number of filtered observations.
+
+### `filter_observations_with_negative_depth()`
+
+Remove observations where the 3D point projects behind the camera. Returns the number of filtered observations.
+
+### `filter_images(min_focal_length_ratio, max_focal_length_ratio, max_extra_param)`
+
+Remove images with no observations or bogus camera parameters. Returns the list of removed image IDs.
+
+## Geometry methods
+
+### `normalize(extent=10.0, p0=0.1, p1=0.9, use_images=True)`
+
+Translate and scale the reconstruction so that camera centers lie within a bounded extent. Improves numerical stability before bundle adjustment.
+
+### `transform(sim3)`
+
+Apply a 3D similarity transformation (`Sim3d`) to all images and points.
+
+### `compute_bounding_box(p0=0.0, p1=1.0)`
+
+Return the axis-aligned bounding box (min, max) of the 3D points at the given percentiles.
+
+### `crop(bbox)`
+
+Return a new reconstruction containing only the points within the bounding box.
+
+## Statistics methods
+
+### `summary()`
+
+Return a multi-line string with reconstruction statistics.
+
+```python
+print(rec.summary())
+# Reconstruction:
+#   num_reg_images = 128
+#   num_cameras = 3
+#   num_points3D = 54821
+#   num_observations = 312450
+#   mean_track_length = 5.70
+#   mean_observations_per_image = 2440.86
+#   mean_reprojection_error = 0.621
+```
+
+### `compute_num_observations()`
+
+Return the total number of point-image observations across all 3D points.
+
+### `compute_mean_track_length()`
+
+Return the mean number of image observations per 3D point.
+
+### `compute_mean_observations_per_reg_image()`
+
+Return the mean number of 3D-point observations per registered image.
+
+### `compute_mean_reprojection_error()`
+
+Return the mean reprojection error in pixels across all observations.
+
+## Color extraction
+
+### `extract_colors_for_image(image_id, path)`
+
+Extract RGB colors for the 3D points seen in a single image. Only updates points that are still black (`[0,0,0]`). Returns `True` if the image file could be read.
+
+### `extract_colors_for_all_images(path)`
+
+Extract colors for all 3D points by averaging pixel colors across all images.
+
+<ParamField path="path" type="str or Path" required>
+  Root directory that contains the image files. Image paths are resolved by joining this root with each image's `name`.
+</ParamField>
+
+## Validation
+
+### `check()`
+
+Verify internal consistency: every track element must point to a registered image, and every registered image must have a valid camera.
+
+<Warning>
+  `check()` raises an exception on the first inconsistency found. Use it after manual reconstruction edits to catch issues early.
+</Warning>
+
+## Examples
+
+```python
+import pycolmap
+
+# Load and inspect
+rec = pycolmap.Reconstruction("/sparse/0")
+print(rec.summary())
+
+# Iterate images
+for image_id, image in rec.images.items():
+    print(image_id, image.name, image.num_points3D)
+
+# Iterate 3D points
+for p3d_id, p3d in rec.points3D.items():
+    print(p3d_id, p3d.xyz, p3d.error)
+
+# Filter and save
+rec.filter_all_points3D(max_reproj_error=4.0, min_tri_angle=1.5)
+rec.write("/sparse/0_filtered")
+```

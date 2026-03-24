@@ -1,0 +1,263 @@
+---
+title: "Dense reconstruction"
+description: "Produce a dense point cloud from a sparse reconstruction using undistort_images, patch_match_stereo, and stereo_fusion."
+---
+
+Dense reconstruction converts the sparse SfM output into a full dense point cloud. It consists of three steps:
+
+1. **Undistort images** — warp images to a pinhole camera model and prepare the MVS workspace.
+2. **Patch-match stereo** — estimate per-pixel depth and normal maps using a CUDA-based patch-match algorithm.
+3. **Stereo fusion** — merge the depth maps into a single dense point cloud.
+
+<Warning>
+  `patch_match_stereo` requires COLMAP compiled with CUDA support. The PyPI wheels do not include CUDA. To use this step, build PyCOLMAP from source on a machine with a CUDA GPU.
+</Warning>
+
+## undistort_images
+
+Undistorts images from a sparse reconstruction and writes the result to a workspace directory in a format suitable for patch-match stereo.
+
+```python
+pycolmap.undistort_images(
+    output_path,                              # Workspace directory to create
+    input_path,                               # Directory of the sparse reconstruction
+    image_path,                               # Directory of original images
+    image_list          = [],                 # Optional subset of images to undistort
+    output_type         = "COLMAP",           # "COLMAP", "PMVS", or "CMP-MVS"
+    copy_policy         = pycolmap.CopyType.copy,
+    num_patch_match_src_images = 20,
+    undistort_options   = pycolmap.UndistortCameraOptions(),
+)
+```
+
+### Parameters
+
+<ParamField path="output_path" type="str or Path" required>
+  Path to the output workspace directory. Created automatically if it does not exist.
+</ParamField>
+
+<ParamField path="input_path" type="str or Path" required>
+  Path to the sparse reconstruction directory (containing `cameras.bin`, `images.bin`, `points3D.bin`).
+</ParamField>
+
+<ParamField path="image_path" type="str or Path" required>
+  Directory containing the original (distorted) images.
+</ParamField>
+
+<ParamField path="image_list" type="list[str]" default="[]">
+  Optional list of image filenames to undistort. All images are processed if empty.
+</ParamField>
+
+<ParamField path="output_type" type="str" default='COLMAP'>
+  Output workspace format. Supported values: `"COLMAP"`, `"PMVS"`, `"CMP-MVS"`.
+</ParamField>
+
+<ParamField path="copy_policy" type="pycolmap.CopyType" default="CopyType.copy">
+  How to transfer image files into the workspace: `copy`, `soft-link`, or `hard-link`.
+</ParamField>
+
+<ParamField path="num_patch_match_src_images" type="int" default="20">
+  Number of source images to use per target view in patch-match stereo.
+</ParamField>
+
+<ParamField path="undistort_options" type="pycolmap.UndistortCameraOptions">
+  Fine-grained undistortion settings. See [UndistortCameraOptions](#undistortcameraoptions) below.
+</ParamField>
+
+### UndistortCameraOptions
+
+| Option | Type | Description |
+|---|---|---|
+| `blank_pixels` | `float` | Fraction of blank pixels allowed in the undistorted image, in `[0, 1]`. |
+| `min_scale` | `float` | Minimum scale change applied to the camera to satisfy the blank pixel constraint. |
+| `max_scale` | `float` | Maximum scale change applied to the camera to satisfy the blank pixel constraint. |
+| `max_image_size` | `int` | Maximum width or height of the undistorted output image. |
+| `roi_min_x` | `float` | Left boundary of the region of interest (normalized). |
+| `roi_min_y` | `float` | Top boundary of the region of interest (normalized). |
+| `roi_max_x` | `float` | Right boundary of the region of interest (normalized). |
+| `roi_max_y` | `float` | Bottom boundary of the region of interest (normalized). |
+
+## patch_match_stereo
+
+Runs CUDA-based patch-match stereo to estimate dense depth and normal maps for each view in the workspace.
+
+<Warning>
+  This function is only available when PyCOLMAP is built with CUDA support (`COLMAP_CUDA_ENABLED`). Calling it on a CPU-only build will raise `AttributeError: module 'pycolmap' has no attribute 'patch_match_stereo'`.
+</Warning>
+
+```python
+pycolmap.patch_match_stereo(
+    workspace_path,                           # Workspace created by undistort_images
+    workspace_format = "COLMAP",              # "COLMAP" or "PMVS"
+    pmvs_option_name = "option-all",
+    options          = pycolmap.PatchMatchOptions(),
+    config_path      = "",
+)
+```
+
+### Parameters
+
+<ParamField path="workspace_path" type="str or Path" required>
+  Path to the workspace directory created by `undistort_images`.
+</ParamField>
+
+<ParamField path="workspace_format" type="str" default='COLMAP'>
+  Workspace format: `"COLMAP"` or `"PMVS"`.
+</ParamField>
+
+<ParamField path="pmvs_option_name" type="str" default='option-all'>
+  Name of the PMVS option file, when using `workspace_format="PMVS"`.
+</ParamField>
+
+<ParamField path="config_path" type="str" default=''>
+  Optional path to a custom patch-match configuration file.
+</ParamField>
+
+### PatchMatchOptions
+
+| Option | Type | Description |
+|---|---|---|
+| `max_image_size` | `int` | Maximum image size (width or height) during stereo. |
+| `gpu_index` | `str` | GPU indices to use, comma-separated for multi-GPU, e.g. `"0,1,2,3"`. |
+| `depth_min` | `float` | Minimum depth to consider during patch-match. |
+| `depth_max` | `float` | Maximum depth to consider during patch-match. |
+| `window_radius` | `int` | Half-window size for computing the NCC photo-consistency cost. |
+| `window_step` | `int` | Pixel stride when computing NCC within the window. |
+| `sigma_spatial` | `float` | Spatial sigma for bilaterally weighted NCC. |
+| `sigma_color` | `float` | Color sigma for bilaterally weighted NCC. |
+| `num_samples` | `int` | Random samples per pixel in Monte Carlo sampling. |
+| `ncc_sigma` | `float` | Spread of the NCC likelihood function. |
+| `min_triangulation_angle` | `float` | Minimum triangulation angle (degrees) for a view pair to be used. |
+| `incident_angle_sigma` | `float` | Spread of the incident angle likelihood function. |
+| `num_iterations` | `int` | Number of coordinate descent iterations. |
+| `geom_consistency` | `bool` | Add a geometric consistency term to the cost function. Requires existing depth and normal maps. |
+| `geom_consistency_regularizer` | `float` | Relative weight of the geometric consistency term vs. photo-consistency. |
+| `geom_consistency_max_cost` | `float` | Maximum geometric consistency cost (forward-backward reprojection error in pixels). |
+| `filter` | `bool` | Enable post-estimation filtering of depth estimates. |
+| `filter_min_ncc` | `float` | Minimum NCC coefficient for a pixel to be considered photo-consistent. |
+| `filter_min_triangulation_angle` | `float` | Minimum triangulation angle for a depth estimate to be considered stable. |
+| `filter_min_num_consistent` | `int` | Minimum number of source images that must agree for a pixel to survive filtering. |
+| `filter_geom_consistency_max_cost` | `float` | Maximum forward-backward reprojection error for a pixel to be geometrically consistent. |
+| `cache_size` | `float` | Cache size in gigabytes. |
+| `allow_missing_files` | `bool` | Tolerate missing image or map files in the workspace. |
+| `write_consistency_graph` | `bool` | Write the consistency graph to disk. |
+
+## stereo_fusion
+
+Fuses the per-view depth maps from patch-match stereo into a single dense point cloud.
+
+```python
+reconstruction = pycolmap.stereo_fusion(
+    output_path,                              # Output .ply file or directory
+    workspace_path,                           # Workspace from undistort_images
+    workspace_format = "COLMAP",
+    pmvs_option_name = "option-all",
+    input_type       = "geometric",           # "geometric" or "photometric"
+    options          = pycolmap.StereoFusionOptions(),
+)
+# Returns: pycolmap.Reconstruction with dense points
+```
+
+### Parameters
+
+<ParamField path="output_path" type="str or Path" required>
+  If this path has a `.ply` extension, the fused point cloud is written directly to that file. If it is a directory, the reconstruction is written in COLMAP binary format to that directory.
+</ParamField>
+
+<ParamField path="workspace_path" type="str or Path" required>
+  Path to the workspace directory containing the depth maps.
+</ParamField>
+
+<ParamField path="input_type" type="str" default='geometric'>
+  Which depth maps to fuse: `"geometric"` (uses geometric consistency filtering) or `"photometric"`.
+</ParamField>
+
+### StereoFusionOptions
+
+| Option | Type | Description |
+|---|---|---|
+| `mask_path` | `str` | Path for per-image PNG masks (same format as `ImageReaderOptions.mask_path`). |
+| `num_threads` | `int` | Number of threads to use during fusion. |
+| `max_image_size` | `int` | Maximum image size during fusion. |
+| `min_num_pixels` | `int` | Minimum number of depth estimates that must agree to produce a 3D point. |
+| `max_num_pixels` | `int` | Maximum number of depth estimates fused into a single point. |
+| `max_traversal_depth` | `int` | Maximum depth when traversing the consistency graph. |
+| `max_reproj_error` | `float` | Maximum relative reprojection error between measured and projected pixel. |
+| `max_depth_error` | `float` | Maximum relative depth error between measured and projected depth. |
+| `max_normal_error` | `float` | Maximum angular difference (degrees) in normals of pixels to be fused. |
+| `check_num_images` | `int` | Number of overlapping images to check transitively when fusing points. |
+| `use_cache` | `bool` | Use LRU cache instead of pre-loading all data into memory. |
+| `cache_size` | `float` | Cache size in gigabytes. |
+| `bounding_box` | `tuple` | `(min, max)` 3D bounding box to restrict fusion. |
+
+## Complete example
+
+```python
+import pycolmap
+from pathlib import Path
+
+output_path = Path("output/")
+image_dir   = Path("images/")
+mvs_path    = output_path / "mvs"
+
+# Step 1 — Undistort the sparse reconstruction into a MVS workspace
+pycolmap.undistort_images(
+    mvs_path,
+    output_path,    # sparse reconstruction directory
+    image_dir,
+)
+
+# Step 2 — Estimate depth maps (requires CUDA)
+pycolmap.patch_match_stereo(mvs_path)
+
+# Step 3 — Fuse depth maps into a dense point cloud
+pycolmap.stereo_fusion(mvs_path / "dense.ply", mvs_path)
+```
+
+<Tip>
+  For large scenes, increase `num_patch_match_src_images` in `undistort_images` and `cache_size` in both `patch_match_stereo` and `stereo_fusion` to improve coverage at the cost of memory.
+</Tip>
+
+## Meshing
+
+Once you have a dense point cloud, PyCOLMAP can convert it to a surface mesh.
+
+### Poisson meshing
+
+Reads a `.ply` point cloud with normals and outputs a watertight surface mesh.
+
+```python
+pycolmap.poisson_meshing(
+    input_path  = "output/mvs/dense.ply",
+    output_path = "output/mvs/meshed.ply",
+    options     = pycolmap.PoissonMeshingOptions(),
+)
+```
+
+| Option | Type | Description |
+|---|---|---|
+| `point_weight` | `float` | Weight for point interpolation in the screened Poisson equation. Set to `0` for unscreened Poisson reconstruction. |
+| `depth` | `int` | Maximum octree depth for reconstruction. Resolution is at most `2^depth` in each dimension. |
+| `color` | `float` | Relative weight of fine color estimates. Set when input has color data. |
+| `trim` | `float` | Trim value: mesh faces with signal below this value are discarded. |
+| `num_threads` | `int` | Number of threads for Poisson reconstruction. |
+
+### Delaunay meshing
+
+<Note>
+  Delaunay meshing requires COLMAP compiled with CGAL support and is not available in the PyPI wheels.
+</Note>
+
+```python
+# Sparse Delaunay meshing
+pycolmap.sparse_delaunay_meshing(
+    input_path  = "output/sparse/0",
+    output_path = "output/sparse_mesh.ply",
+)
+
+# Dense Delaunay meshing
+pycolmap.dense_delaunay_meshing(
+    input_path  = "output/mvs",
+    output_path = "output/dense_mesh.bin",
+)
+```

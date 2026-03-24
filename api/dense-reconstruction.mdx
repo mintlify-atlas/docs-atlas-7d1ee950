@@ -1,0 +1,590 @@
+---
+title: "Dense reconstruction"
+description: "Undistort images, estimate depth maps with patch-match stereo, fuse depth maps into a dense point cloud, and optionally mesh the result."
+---
+
+Dense reconstruction converts a sparse SfM reconstruction into a dense point cloud and optionally a surface mesh. The pipeline has four stages: undistortion, stereo depth estimation, depth fusion, and meshing.
+
+<Warning>
+  `patch_match_stereo` requires a CUDA-enabled GPU and a COLMAP build compiled with CUDA support. It is not available in the pre-built PyPI wheels.
+</Warning>
+
+---
+
+## undistort_images
+
+Undistorts images and writes them together with camera parameters to a workspace directory, which is the required input format for `patch_match_stereo`.
+
+```python
+pycolmap.undistort_images(
+    output_path,
+    input_path,
+    image_path,
+    image_list              = [],
+    output_type             = "COLMAP",
+    copy_policy             = pycolmap.CopyType.copy,
+    num_patch_match_src_images = 20,
+    undistort_options       = pycolmap.UndistortCameraOptions(),
+)
+```
+
+### Parameters
+
+<ParamField path="output_path" type="str or Path" required>
+  Directory where undistorted images and camera data are written. Created automatically if it does not exist.
+</ParamField>
+
+<ParamField path="input_path" type="str or Path" required>
+  Directory containing an existing sparse COLMAP reconstruction (the numbered subdirectory, e.g. `sparse/0/`).
+</ParamField>
+
+<ParamField path="image_path" type="str or Path" required>
+  Directory containing the original (distorted) input images.
+</ParamField>
+
+<ParamField path="image_list" type="list[str]" default="[]">
+  Optional subset of image names to undistort. When empty, all registered images are undistorted.
+</ParamField>
+
+<ParamField path="output_type" type="str" default='COLMAP'>
+  Output workspace format. Supported values:
+
+  - `"COLMAP"` — standard COLMAP dense workspace (required for `patch_match_stereo` and `stereo_fusion`).
+  - `"PMVS"` — PMVS2-compatible workspace.
+  - `"CMP-MVS"` — CMP-MVS-compatible workspace.
+</ParamField>
+
+<ParamField path="copy_policy" type="pycolmap.CopyType" default="CopyType.copy">
+  How image files are placed in the output directory.
+
+  - `CopyType.copy` — copy each file.
+  - `CopyType.soft-link` — create symbolic links.
+  - `CopyType.hard-link` — create hard links.
+</ParamField>
+
+<ParamField path="num_patch_match_src_images" type="int" default="20">
+  Number of source images written to each image's `src_images` file. Controls how many neighbors are considered during patch-match stereo.
+</ParamField>
+
+<ParamField path="undistort_options" type="pycolmap.UndistortCameraOptions">
+  Undistortion configuration. See [UndistortCameraOptions](#undistortcameraoptions) below.
+</ParamField>
+
+### Return value
+
+<ResponseField name="return" type="None">
+  Returns `None`. All outputs are written to `output_path`.
+</ResponseField>
+
+### UndistortCameraOptions
+
+<ParamField path="blank_pixels" type="float">
+  Fraction of blank (black) pixels allowed in the undistorted image border, in the range `[0, 1]`. Higher values crop more aggressively to eliminate border artifacts.
+</ParamField>
+
+<ParamField path="min_scale" type="float">
+  Minimum scale change of the camera model used to satisfy the blank pixel constraint.
+</ParamField>
+
+<ParamField path="max_scale" type="float">
+  Maximum scale change of the camera model used to satisfy the blank pixel constraint.
+</ParamField>
+
+<ParamField path="max_image_size" type="int">
+  Maximum dimension (width or height) of the undistorted output image in pixels.
+</ParamField>
+
+<ParamField path="roi_min_x" type="float">
+  Left boundary of the region-of-interest crop, as a fraction of image width.
+</ParamField>
+
+<ParamField path="roi_min_y" type="float">
+  Top boundary of the region-of-interest crop, as a fraction of image height.
+</ParamField>
+
+<ParamField path="roi_max_x" type="float">
+  Right boundary of the region-of-interest crop, as a fraction of image width.
+</ParamField>
+
+<ParamField path="roi_max_y" type="float">
+  Bottom boundary of the region-of-interest crop, as a fraction of image height.
+</ParamField>
+
+---
+
+## patch_match_stereo
+
+Estimates per-pixel depth and normal maps for each image using PatchMatch stereo. Requires CUDA.
+
+```python
+pycolmap.patch_match_stereo(
+    workspace_path,
+    workspace_format  = "COLMAP",
+    pmvs_option_name  = "option-all",
+    options           = pycolmap.PatchMatchOptions(),
+    config_path       = "",
+)
+```
+
+<Warning>
+  This function is only available when PyCOLMAP is compiled with CUDA support (`COLMAP_CUDA_ENABLED`). Calling it without CUDA raises `AttributeError: module 'pycolmap' has no attribute 'patch_match_stereo'`.
+</Warning>
+
+### Parameters
+
+<ParamField path="workspace_path" type="str or Path" required>
+  Path to a dense workspace directory created by `undistort_images`.
+</ParamField>
+
+<ParamField path="workspace_format" type="str" default='COLMAP'>
+  Workspace format. Must be `"COLMAP"` or `"PMVS"` (case-insensitive).
+</ParamField>
+
+<ParamField path="pmvs_option_name" type="str" default='option-all'>
+  Name of the PMVS option file to use when `workspace_format` is `"PMVS"`.
+</ParamField>
+
+<ParamField path="options" type="pycolmap.PatchMatchOptions">
+  PatchMatch stereo configuration. See [PatchMatchOptions](#patchmatchoptions) below.
+</ParamField>
+
+<ParamField path="config_path" type="str" default=''>
+  Optional path to a custom patch-match configuration file. When empty, the default workspace configuration is used.
+</ParamField>
+
+### Return value
+
+<ResponseField name="return" type="None">
+  Returns `None`. Depth and normal maps are written to the workspace directory.
+</ResponseField>
+
+### PatchMatchOptions
+
+<ParamField path="max_image_size" type="int">
+  Maximum image size in either dimension. Larger images are downscaled.
+</ParamField>
+
+<ParamField path="gpu_index" type="str">
+  Index of the GPU to use. Separate multiple GPU indices with commas, e.g. `"0,1,2,3"`.
+</ParamField>
+
+<ParamField path="depth_min" type="float">
+  Minimum depth value for the depth range search.
+</ParamField>
+
+<ParamField path="depth_max" type="float">
+  Maximum depth value for the depth range search.
+</ParamField>
+
+<ParamField path="window_radius" type="int">
+  Half window size for NCC (normalized cross-correlation) photo-consistency cost computation.
+</ParamField>
+
+<ParamField path="window_step" type="int">
+  Number of pixels to skip when sampling the NCC window.
+</ParamField>
+
+<ParamField path="sigma_spatial" type="float">
+  Spatial sigma for the bilateral weighting of the NCC score.
+</ParamField>
+
+<ParamField path="sigma_color" type="float">
+  Color sigma for the bilateral weighting of the NCC score.
+</ParamField>
+
+<ParamField path="num_samples" type="int">
+  Number of random hypothesis samples drawn per pixel per iteration (Monte Carlo sampling).
+</ParamField>
+
+<ParamField path="ncc_sigma" type="float">
+  Spread of the NCC likelihood function.
+</ParamField>
+
+<ParamField path="min_triangulation_angle" type="float">
+  Minimum triangulation angle in degrees for a depth hypothesis to be considered valid.
+</ParamField>
+
+<ParamField path="incident_angle_sigma" type="float">
+  Spread of the incident angle likelihood function.
+</ParamField>
+
+<ParamField path="num_iterations" type="int">
+  Number of coordinate descent iterations.
+</ParamField>
+
+<ParamField path="geom_consistency" type="bool">
+  When `True`, adds a geometric consistency term to the cost function. `depth_maps` and `normal_maps` must be available.
+</ParamField>
+
+<ParamField path="geom_consistency_regularizer" type="float">
+  Relative weight of the geometric consistency term compared to the photo-consistency term.
+</ParamField>
+
+<ParamField path="geom_consistency_max_cost" type="float">
+  Maximum allowed geometric consistency cost in pixels (forward-backward reprojection error).
+</ParamField>
+
+<ParamField path="filter" type="bool">
+  When `True`, enables post-estimation filtering of unreliable depth estimates.
+</ParamField>
+
+<ParamField path="filter_min_ncc" type="float">
+  Minimum NCC coefficient for a pixel to be kept during filtering.
+</ParamField>
+
+<ParamField path="filter_min_triangulation_angle" type="float">
+  Minimum triangulation angle in degrees for a pixel to be considered stable during filtering.
+</ParamField>
+
+<ParamField path="filter_min_num_consistent" type="int">
+  Minimum number of source images that must agree with a depth estimate for it to survive filtering.
+</ParamField>
+
+<ParamField path="filter_geom_consistency_max_cost" type="float">
+  Maximum forward-backward reprojection error in pixels for a pixel to be geometrically consistent during filtering.
+</ParamField>
+
+<ParamField path="cache_size" type="float">
+  GPU cache size in gigabytes for the patch-match solver.
+</ParamField>
+
+<ParamField path="allow_missing_files" type="bool">
+  When `True`, tolerates missing images or depth maps in the problem setup rather than raising an error.
+</ParamField>
+
+<ParamField path="write_consistency_graph" type="bool">
+  When `True`, writes the inter-image consistency graph to the workspace directory.
+</ParamField>
+
+---
+
+## stereo_fusion
+
+Fuses depth and normal maps from all views into a single dense point cloud.
+
+```python
+reconstruction = pycolmap.stereo_fusion(
+    output_path,
+    workspace_path,
+    workspace_format  = "COLMAP",
+    pmvs_option_name  = "option-all",
+    input_type        = "geometric",
+    options           = pycolmap.StereoFusionOptions(),
+)
+```
+
+### Parameters
+
+<ParamField path="output_path" type="str or Path" required>
+  Output path for the fused result. If a directory is provided, the reconstruction is written in binary COLMAP format. If a `.ply` file path is provided, a PLY point cloud is written.
+</ParamField>
+
+<ParamField path="workspace_path" type="str or Path" required>
+  Path to the dense workspace directory containing depth and normal maps.
+</ParamField>
+
+<ParamField path="workspace_format" type="str" default='COLMAP'>
+  Workspace format. Must be `"COLMAP"` or `"PMVS"` (case-insensitive).
+</ParamField>
+
+<ParamField path="pmvs_option_name" type="str" default='option-all'>
+  Name of the PMVS option file to use when `workspace_format` is `"PMVS"`.
+</ParamField>
+
+<ParamField path="input_type" type="str" default='geometric'>
+  Type of depth maps to fuse. Must be `"geometric"` or `"photometric"` (case-insensitive). Geometric depth maps incorporate consistency across views and are generally preferred.
+</ParamField>
+
+<ParamField path="options" type="pycolmap.StereoFusionOptions">
+  Stereo fusion configuration. See [StereoFusionOptions](#stereofusionoptions) below.
+</ParamField>
+
+### Return value
+
+<ResponseField name="reconstruction" type="pycolmap.Reconstruction">
+  A `Reconstruction` object whose 3D points are the fused dense point cloud. Camera poses are read from the sparse reconstruction in the workspace.
+</ResponseField>
+
+### StereoFusionOptions
+
+<ParamField path="mask_path" type="str">
+  Path to PNG masks. Uses the same format as `ImageReaderOptions.mask_path`.
+</ParamField>
+
+<ParamField path="num_threads" type="int">
+  Number of threads for fusion.
+</ParamField>
+
+<ParamField path="max_image_size" type="int">
+  Maximum image size in either dimension during fusion.
+</ParamField>
+
+<ParamField path="min_num_pixels" type="int">
+  Minimum number of pixels that must contribute to a fused point for it to be kept.
+</ParamField>
+
+<ParamField path="max_num_pixels" type="int">
+  Maximum number of pixels that can be fused into a single output point.
+</ParamField>
+
+<ParamField path="max_traversal_depth" type="int">
+  Maximum depth traversal in the inter-image consistency graph.
+</ParamField>
+
+<ParamField path="max_reproj_error" type="float">
+  Maximum relative difference between measured and projected pixel position.
+</ParamField>
+
+<ParamField path="max_depth_error" type="float">
+  Maximum relative depth difference between measured and projected depth.
+</ParamField>
+
+<ParamField path="max_normal_error" type="float">
+  Maximum angular difference in degrees between normals of pixels to be fused.
+</ParamField>
+
+<ParamField path="check_num_images" type="int">
+  Number of overlapping images to check transitively when fusing points.
+</ParamField>
+
+<ParamField path="use_cache" type="bool">
+  When `True`, uses an LRU cache to manage memory. When `False`, pre-loads all data.
+</ParamField>
+
+<ParamField path="cache_size" type="float">
+  Cache size in gigabytes for depth map fusion.
+</ParamField>
+
+<ParamField path="bounding_box" type="tuple[tuple, tuple]">
+  Optional 3D bounding box to restrict fusion. Format: `(min_xyz, max_xyz)` where each is a 3-tuple of floats.
+</ParamField>
+
+---
+
+## poisson_meshing
+
+Reconstructs a surface mesh from a dense point cloud using Screened Poisson Reconstruction.
+
+```python
+pycolmap.poisson_meshing(
+    input_path,
+    output_path,
+    options = pycolmap.PoissonMeshingOptions(),
+)
+```
+
+### Parameters
+
+<ParamField path="input_path" type="str or Path" required>
+  Path to a `.ply` file containing the dense point cloud with normals (e.g., the output from `stereo_fusion`).
+</ParamField>
+
+<ParamField path="output_path" type="str or Path" required>
+  Path to the output `.ply` mesh file.
+</ParamField>
+
+<ParamField path="options" type="pycolmap.PoissonMeshingOptions">
+  Poisson meshing configuration. See [PoissonMeshingOptions](#poissonmeshingoptions) below.
+</ParamField>
+
+### Return value
+
+<ResponseField name="return" type="None">
+  Returns `None`. The mesh is written to `output_path`.
+</ResponseField>
+
+### PoissonMeshingOptions
+
+<ParamField path="point_weight" type="float">
+  Importance of point-sample interpolation in the Screened Poisson equation. Set to `0` to recover the original (unscreened) Poisson behavior.
+</ParamField>
+
+<ParamField path="depth" type="int">
+  Maximum octree depth for surface reconstruction. Resolution is bounded by `2^depth × 2^depth × 2^depth`. The reconstructor adapts to sampling density, so this is an upper bound.
+</ParamField>
+
+<ParamField path="color" type="float">
+  When non-zero, extrapolates vertex colors from the input point cloud. The value controls the relative importance of finer color estimates over coarser ones.
+</ParamField>
+
+<ParamField path="trim" type="float">
+  Mesh trimming threshold. Surface regions with a signal value below this are discarded, removing low-confidence areas.
+</ParamField>
+
+<ParamField path="num_threads" type="int">
+  Number of threads for Poisson reconstruction.
+</ParamField>
+
+---
+
+## sparse_delaunay_meshing
+
+Meshes a sparse COLMAP reconstruction using Delaunay triangulation. Requires CGAL.
+
+```python
+pycolmap.sparse_delaunay_meshing(
+    input_path,
+    output_path,
+    options = pycolmap.DelaunayMeshingOptions(),
+)
+```
+
+<Warning>
+  `sparse_delaunay_meshing` and `dense_delaunay_meshing` require COLMAP to be compiled with CGAL support (`COLMAP_CGAL_ENABLED`). They are not available in the pre-built PyPI wheels.
+</Warning>
+
+<ParamField path="input_path" type="str or Path" required>
+  Path to a directory containing a sparse COLMAP reconstruction.
+</ParamField>
+
+<ParamField path="output_path" type="str or Path" required>
+  Path to the output `.ply` mesh file.
+</ParamField>
+
+<ParamField path="options" type="pycolmap.DelaunayMeshingOptions">
+  Delaunay meshing configuration. See [DelaunayMeshingOptions](#delaunaymeshingoptions) below.
+</ParamField>
+
+### Return value
+
+<ResponseField name="return" type="None">
+  Returns `None`. The mesh is written to `output_path`.
+</ResponseField>
+
+---
+
+## dense_delaunay_meshing
+
+Meshes a dense COLMAP reconstruction using Delaunay triangulation. Requires CGAL.
+
+```python
+pycolmap.dense_delaunay_meshing(
+    input_path,
+    output_path,
+    options = pycolmap.DelaunayMeshingOptions(),
+)
+```
+
+<ParamField path="input_path" type="str or Path" required>
+  Path to a directory containing a dense COLMAP reconstruction.
+</ParamField>
+
+<ParamField path="output_path" type="str or Path" required>
+  Path to the output `.bin` mesh file.
+</ParamField>
+
+<ParamField path="options" type="pycolmap.DelaunayMeshingOptions">
+  Delaunay meshing configuration. See [DelaunayMeshingOptions](#delaunaymeshingoptions) below.
+</ParamField>
+
+### Return value
+
+<ResponseField name="return" type="None">
+  Returns `None`. The mesh is written to `output_path`.
+</ResponseField>
+
+### DelaunayMeshingOptions
+
+<ParamField path="max_proj_dist" type="float">
+  Input points that fall within this reprojected pixel radius are unified into one Delaunay cell.
+</ParamField>
+
+<ParamField path="max_depth_dist" type="float">
+  Maximum relative depth difference between an input point and an existing Delaunay cell vertex. When exceeded, a new vertex is inserted.
+</ParamField>
+
+<ParamField path="visibility_sigma" type="float">
+  Standard deviation with respect to the number of images observing each point. Increasing this value reduces the influence of sparsely observed points.
+</ParamField>
+
+<ParamField path="distance_sigma_factor" type="float">
+  Factor applied to the automatically computed distance sigma (the 25th percentile of edge lengths). A higher value increases surface smoothness.
+</ParamField>
+
+<ParamField path="quality_regularization" type="float">
+  Higher values produce smoother output surfaces.
+</ParamField>
+
+<ParamField path="max_side_length_factor" type="float">
+  Mesh faces are discarded as outliers when their longest side exceeds `max_side_length_factor × percentile_side_length`, where the percentile is set by `max_side_length_percentile`.
+</ParamField>
+
+<ParamField path="max_side_length_percentile" type="float">
+  Percentile of face side lengths used as the reference for outlier face filtering.
+</ParamField>
+
+<ParamField path="num_threads" type="int">
+  Number of threads for reconstruction. Defaults to all available threads.
+</ParamField>
+
+---
+
+## Examples
+
+<CodeGroup>
+
+```python Full dense pipeline
+import pycolmap
+from pathlib import Path
+
+sparse_dir  = Path("output/sparse/0/")
+image_dir   = Path("images/")
+dense_dir   = Path("output/dense/")
+fused_ply   = Path("output/dense/fused.ply")
+mesh_ply    = Path("output/dense/mesh.ply")
+
+# Step 1: undistort
+pycolmap.undistort_images(
+    output_path=str(dense_dir),
+    input_path=str(sparse_dir),
+    image_path=str(image_dir),
+)
+
+# Step 2: depth estimation (requires CUDA)
+pycolmap.patch_match_stereo(workspace_path=str(dense_dir))
+
+# Step 3: fusion
+pycolmap.stereo_fusion(
+    output_path=str(fused_ply),
+    workspace_path=str(dense_dir),
+)
+
+# Step 4: Poisson meshing
+pycolmap.poisson_meshing(
+    input_path=str(fused_ply),
+    output_path=str(mesh_ply),
+)
+```
+
+```python Fusion with custom options
+import pycolmap
+from pathlib import Path
+
+dense_dir = Path("output/dense/")
+fused_ply = Path("output/dense/fused.ply")
+
+fuse_opts = pycolmap.StereoFusionOptions()
+fuse_opts.min_num_pixels = 5
+fuse_opts.max_reproj_error = 2.0
+fuse_opts.max_depth_error = 0.01
+fuse_opts.cache_size = 32.0  # GB
+
+pycolmap.stereo_fusion(
+    output_path=str(fused_ply),
+    workspace_path=str(dense_dir),
+    options=fuse_opts,
+)
+```
+
+```python Photometric fusion
+import pycolmap
+from pathlib import Path
+
+pycolmap.stereo_fusion(
+    output_path="output/dense/fused_photo.ply",
+    workspace_path="output/dense/",
+    input_type="photometric",
+)
+```
+
+</CodeGroup>

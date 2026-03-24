@@ -1,0 +1,352 @@
+---
+title: "Incremental mapping"
+description: "Reconstruct 3D structure and recover camera poses incrementally from a feature database, or triangulate new 3D points into an existing reconstruction."
+---
+
+## incremental_mapping
+
+Runs the full incremental structure-from-motion pipeline: initializes a reconstruction from an image pair, then registers new images one at a time while refining structure and camera parameters via bundle adjustment.
+
+```python
+reconstructions = pycolmap.incremental_mapping(
+    database_path,
+    image_path,
+    output_path,
+    options                    = pycolmap.IncrementalPipelineOptions(),
+    input_path                 = "",
+    initial_image_pair_callback = None,
+    next_image_callback        = None,
+)
+```
+
+### Parameters
+
+<ParamField path="database_path" type="str or Path" required>
+  Path to an existing COLMAP SQLite database containing extracted features and feature matches.
+</ParamField>
+
+<ParamField path="image_path" type="str or Path" required>
+  Directory containing the input images.
+</ParamField>
+
+<ParamField path="output_path" type="str or Path" required>
+  Directory where reconstructions are saved. Created automatically if it does not exist. Each sub-model is written to a numbered subdirectory (`0/`, `1/`, …).
+</ParamField>
+
+<ParamField path="options" type="pycolmap.IncrementalPipelineOptions">
+  Pipeline configuration. See [IncrementalPipelineOptions](#incrementalpipelineoptions) below.
+</ParamField>
+
+<ParamField path="input_path" type="str or Path" default=''>
+  Optional path to an existing reconstruction to continue from. When provided, the mapper reads the prior reconstruction and registers additional images into it.
+</ParamField>
+
+<ParamField path="initial_image_pair_callback" type="callable or None" default="None">
+  Optional Python callable invoked once when the initial image pair is registered. Useful for progress tracking.
+</ParamField>
+
+<ParamField path="next_image_callback" type="callable or None" default="None">
+  Optional Python callable invoked each time a new image is registered. Raises `KeyboardInterrupt` if called during a Python interrupt, allowing graceful early termination.
+</ParamField>
+
+### Return value
+
+<ResponseField name="reconstructions" type="dict[int, pycolmap.Reconstruction]">
+  Dictionary mapping sub-model index to a `pycolmap.Reconstruction` object. When `multiple_models` is `False`, the dict contains a single entry at key `0`.
+</ResponseField>
+
+---
+
+## triangulate_points
+
+Triangulates new 3D points into a reconstruction that already has registered images with known camera poses. Use this when you have poses from a prior step and want to densify the point cloud.
+
+```python
+reconstruction = pycolmap.triangulate_points(
+    reconstruction,
+    database_path,
+    image_path,
+    output_path,
+    clear_points      = True,
+    options           = pycolmap.IncrementalPipelineOptions(),
+    refine_intrinsics = False,
+)
+```
+
+### Parameters
+
+<ParamField path="reconstruction" type="pycolmap.Reconstruction" required>
+  An existing `Reconstruction` object with registered images and known camera poses.
+</ParamField>
+
+<ParamField path="database_path" type="str or Path" required>
+  Path to an existing COLMAP SQLite database containing feature matches.
+</ParamField>
+
+<ParamField path="image_path" type="str or Path" required>
+  Directory containing the input images.
+</ParamField>
+
+<ParamField path="output_path" type="str or Path" required>
+  Directory where the updated reconstruction is written. Created automatically if it does not exist.
+</ParamField>
+
+<ParamField path="clear_points" type="bool" default="True">
+  When `True`, removes all existing 3D points from the reconstruction before triangulating new ones.
+</ParamField>
+
+<ParamField path="options" type="pycolmap.IncrementalPipelineOptions">
+  Triangulation and bundle adjustment configuration. The `triangulation` sub-options are used.
+</ParamField>
+
+<ParamField path="refine_intrinsics" type="bool" default="False">
+  When `True`, also optimizes camera intrinsic parameters during the post-triangulation bundle adjustment pass.
+</ParamField>
+
+### Return value
+
+<ResponseField name="reconstruction" type="pycolmap.Reconstruction">
+  The updated `Reconstruction` object with newly triangulated 3D points.
+</ResponseField>
+
+---
+
+## IncrementalPipelineOptions
+
+Construct with `pycolmap.IncrementalPipelineOptions()` and override individual fields.
+
+### Model selection
+
+<ParamField path="min_num_matches" type="int">
+  Minimum number of inlier matches required for an image pair to be used during reconstruction.
+</ParamField>
+
+<ParamField path="ignore_watermarks" type="bool">
+  When `True`, ignores inlier matches from image pairs identified as watermark pairs.
+</ParamField>
+
+<ParamField path="multiple_models" type="bool">
+  When `True`, reconstructs multiple disconnected sub-models from the image set.
+</ParamField>
+
+<ParamField path="max_num_models" type="int">
+  Maximum number of sub-models to reconstruct when `multiple_models` is `True`.
+</ParamField>
+
+<ParamField path="max_model_overlap" type="int">
+  Maximum number of images shared between sub-models. When this limit is exceeded, the current sub-model reconstruction stops.
+</ParamField>
+
+<ParamField path="min_model_size" type="int">
+  Minimum number of registered images for a sub-model to be kept. Sub-models smaller than this are discarded. The first sub-model is always kept regardless of size.
+</ParamField>
+
+### Initialization
+
+<ParamField path="init_image_id1" type="int">
+  Database image ID of the first image used to initialize the reconstruction. Determined automatically when left at the default value.
+</ParamField>
+
+<ParamField path="init_image_id2" type="int">
+  Database image ID of the second image used to initialize the reconstruction. Determined automatically when left at the default value.
+</ParamField>
+
+<ParamField path="init_num_trials" type="int">
+  Number of initialization attempts before giving up.
+</ParamField>
+
+### Output
+
+<ParamField path="extract_colors" type="bool">
+  When `True`, extracts RGB color for each reconstructed 3D point from the images.
+</ParamField>
+
+<ParamField path="num_threads" type="int">
+  Number of threads to use during reconstruction.
+</ParamField>
+
+<ParamField path="snapshot_path" type="str">
+  Directory to save intermediate reconstruction snapshots. No snapshots are saved when empty.
+</ParamField>
+
+<ParamField path="snapshot_images_freq" type="int">
+  Save a snapshot every time this many new images have been registered.
+</ParamField>
+
+<ParamField path="image_names" type="list[str]">
+  Restricts reconstruction to this subset of images. All images in the database are used when empty.
+</ParamField>
+
+<ParamField path="fix_existing_images" type="bool">
+  When `True` and `input_path` is provided, keeps the existing image poses fixed and only registers new images.
+</ParamField>
+
+### Intrinsic filtering
+
+<ParamField path="min_focal_length_ratio" type="float">
+  Minimum allowed ratio between estimated and prior focal length. Images outside this range are considered degenerate and ignored.
+</ParamField>
+
+<ParamField path="max_focal_length_ratio" type="float">
+  Maximum allowed ratio between estimated and prior focal length. Images outside this range are considered degenerate and ignored.
+</ParamField>
+
+<ParamField path="max_extra_param" type="float">
+  Maximum value for extra camera parameters (e.g., distortion coefficients). Images exceeding this are considered degenerate.
+</ParamField>
+
+### Bundle adjustment — intrinsics
+
+<ParamField path="ba_refine_focal_length" type="bool">
+  Whether to optimize focal length during bundle adjustment.
+</ParamField>
+
+<ParamField path="ba_refine_principal_point" type="bool">
+  Whether to optimize the principal point during bundle adjustment.
+</ParamField>
+
+<ParamField path="ba_refine_extra_params" type="bool">
+  Whether to optimize extra camera parameters (e.g., distortion) during bundle adjustment.
+</ParamField>
+
+### Bundle adjustment — local
+
+<ParamField path="ba_local_num_images" type="int">
+  Number of images included in each local bundle adjustment window.
+</ParamField>
+
+<ParamField path="ba_local_function_tolerance" type="float">
+  Ceres solver function tolerance for local bundle adjustment.
+</ParamField>
+
+<ParamField path="ba_local_max_num_iterations" type="int">
+  Maximum solver iterations per local bundle adjustment call.
+</ParamField>
+
+<ParamField path="ba_local_max_refinements" type="int">
+  Maximum number of iterative local bundle adjustment refinement rounds.
+</ParamField>
+
+<ParamField path="ba_local_max_refinement_change" type="float">
+  Convergence threshold for iterative local bundle adjustment refinement.
+</ParamField>
+
+### Bundle adjustment — global
+
+<ParamField path="ba_global_images_ratio" type="float">
+  Fraction of new images registered since last global BA that triggers another global BA run.
+</ParamField>
+
+<ParamField path="ba_global_points_ratio" type="float">
+  Fraction of new 3D points added since last global BA that triggers another global BA run.
+</ParamField>
+
+<ParamField path="ba_global_images_freq" type="int">
+  Absolute number of newly registered images since last global BA that triggers another run.
+</ParamField>
+
+<ParamField path="ba_global_points_freq" type="int">
+  Absolute number of newly added 3D points since last global BA that triggers another run.
+</ParamField>
+
+<ParamField path="ba_global_function_tolerance" type="float">
+  Ceres solver function tolerance for global bundle adjustment.
+</ParamField>
+
+<ParamField path="ba_global_max_num_iterations" type="int">
+  Maximum solver iterations per global bundle adjustment call.
+</ParamField>
+
+<ParamField path="ba_global_max_refinements" type="int">
+  Maximum number of iterative global bundle adjustment refinement rounds.
+</ParamField>
+
+<ParamField path="ba_global_max_refinement_change" type="float">
+  Convergence threshold for iterative global bundle adjustment refinement.
+</ParamField>
+
+<ParamField path="ba_min_num_residuals_for_multi_threading" type="int">
+  Minimum number of residuals in a bundle adjustment problem before multi-threaded solving is enabled.
+</ParamField>
+
+### Sub-option objects
+
+<ParamField path="mapper" type="IncrementalMapperOptions">
+  Low-level incremental mapper configuration. Access via `options.mapper` or `options.get_mapper()`.
+</ParamField>
+
+<ParamField path="triangulation" type="IncrementalTriangulatorOptions">
+  Triangulator configuration. Access via `options.triangulation` or `options.get_triangulation()`.
+</ParamField>
+
+---
+
+## Examples
+
+<CodeGroup>
+
+```python Minimal reconstruction
+import pycolmap
+from pathlib import Path
+
+database_path = Path("output/database.db")
+image_dir = Path("images/")
+output_dir = Path("output/sparse/")
+
+reconstructions = pycolmap.incremental_mapping(
+    database_path,
+    image_dir,
+    output_dir,
+)
+
+for idx, reconstruction in reconstructions.items():
+    print(f"Reconstruction {idx}: "
+          f"{reconstruction.num_reg_images()} images, "
+          f"{reconstruction.num_points3D()} points")
+```
+
+```python Continuation from existing reconstruction
+import pycolmap
+from pathlib import Path
+
+database_path = Path("output/database.db")
+image_dir = Path("images/")
+output_dir = Path("output/sparse_extended/")
+input_dir = Path("output/sparse/0/")
+
+opts = pycolmap.IncrementalPipelineOptions()
+opts.fix_existing_images = True
+
+reconstructions = pycolmap.incremental_mapping(
+    database_path,
+    image_dir,
+    output_dir,
+    options=opts,
+    input_path=str(input_dir),
+)
+```
+
+```python Triangulate points into known poses
+import pycolmap
+from pathlib import Path
+
+reconstruction = pycolmap.Reconstruction()
+reconstruction.read(Path("output/sparse/0/"))
+
+database_path = Path("output/database.db")
+image_dir = Path("images/")
+output_dir = Path("output/triangulated/")
+
+reconstruction = pycolmap.triangulate_points(
+    reconstruction,
+    database_path,
+    image_dir,
+    output_dir,
+    clear_points=True,
+    refine_intrinsics=False,
+)
+
+print(f"Triangulated {reconstruction.num_points3D()} points")
+```
+
+</CodeGroup>

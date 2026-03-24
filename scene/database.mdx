@@ -1,0 +1,171 @@
+---
+title: "Database"
+description: "Open and query a COLMAP SQLite database with pycolmap.Database: cameras, images, keypoints, descriptors, and matches."
+keywords: ["database", "SQLite", "features", "keypoints", "descriptors", "matches", "two-view geometry"]
+---
+
+COLMAP stores features and matches in a SQLite database file. `pycolmap.Database` provides Python access to this database so you can read camera and image records, check feature counts, and write new cameras or images without going through the full pipeline.
+
+## Opening a database
+
+```python
+import pycolmap
+
+# Open an existing database (or create a new one)
+db = pycolmap.Database("path/to/database.db")
+
+# You can also open after construction
+db = pycolmap.Database.__new__(pycolmap.Database)
+db.open("path/to/database.db")
+
+# Close when done
+db.close()
+```
+
+<Tip>
+  `pycolmap.Database` is not a context manager. Call `db.close()` explicitly when you are finished, or let the object go out of scope.
+</Tip>
+
+## Counting records
+
+All count properties are read-only.
+
+```python
+db.num_cameras               # int — number of camera records
+db.num_images                # int — number of image records
+db.num_keypoints             # int — total keypoints across all images
+db.num_descriptors           # int — total descriptors across all images
+db.num_matches               # int — total feature matches
+db.num_inlier_matches        # int — total inlier matches after geometric verification
+db.num_matched_image_pairs   # int — image pairs with feature matches
+db.num_verified_image_pairs  # int — image pairs with verified geometry
+```
+
+Count functions for a specific image:
+
+```python
+db.num_keypoints_for_image(image_id)    # int — keypoints for one image
+db.num_descriptors_for_image(image_id)  # int — descriptors for one image
+```
+
+## Reading cameras
+
+```python
+# Read one camera by ID
+camera = db.read_camera(camera_id)         # returns pycolmap.Camera
+
+# Read all cameras
+cameras = db.read_all_cameras()            # returns list[pycolmap.Camera]
+```
+
+## Reading images
+
+```python
+# Read one image by ID
+image = db.read_image(image_id)            # returns pycolmap.Image
+
+# Read by filename
+image = db.read_image_with_name("images/frame_0001.jpg")  # returns pycolmap.Image
+
+# Read all images
+images = db.read_all_images()              # returns list[pycolmap.Image]
+```
+
+## Reading two-view geometry
+
+After geometric verification, each image pair has an associated `TwoViewGeometry`:
+
+```python
+geometry = db.read_two_view_geometry(image_id1, image_id2)
+```
+
+## Image pair ID utilities
+
+COLMAP internally encodes pairs of image IDs as a single 64-bit integer:
+
+```python
+pair_id = db.image_pair_to_pair_id(image_id1, image_id2)  # int
+image_id1, image_id2 = db.pair_id_to_image_pair(pair_id)  # (int, int)
+```
+
+## Writing records
+
+```python
+# Write a camera (returns the assigned camera_id)
+camera_id = db.write_camera(camera)
+
+# Write an image (returns the assigned image_id)
+image_id = db.write_image(image)
+```
+
+<Warning>
+  Do not write cameras or images while another pipeline step is actively reading from the same database. Use `DatabaseTransaction` to batch writes efficiently and safely.
+</Warning>
+
+## Batching writes with DatabaseTransaction
+
+Wrap bulk writes in a `DatabaseTransaction` for better performance. The transaction commits when the object goes out of scope:
+
+```python
+with pycolmap.DatabaseTransaction(db) as _txn:
+    for camera in cameras_to_add:
+        db.write_camera(camera)
+    for image in images_to_add:
+        db.write_image(image)
+```
+
+## Example: inspecting a database
+
+```python
+import pycolmap
+
+db = pycolmap.Database("output/database.db")
+
+print(f"Cameras:            {db.num_cameras}")
+print(f"Images:             {db.num_images}")
+print(f"Total keypoints:    {db.num_keypoints}")
+print(f"Matched pairs:      {db.num_matched_image_pairs}")
+print(f"Verified pairs:     {db.num_verified_image_pairs}")
+print(f"Inlier matches:     {db.num_inlier_matches}")
+
+for image in db.read_all_images():
+    n_kp = db.num_keypoints_for_image(image.image_id)
+    print(f"  {image.name}: {n_kp} keypoints")
+
+db.close()
+```
+
+## Example: reading a database after feature extraction
+
+```python
+import pathlib
+import pycolmap
+
+database_path = pathlib.Path("output/database.db")
+image_dir = pathlib.Path("images/")
+
+pycolmap.extract_features(database_path, image_dir)
+pycolmap.match_exhaustive(database_path)
+
+db = pycolmap.Database(database_path)
+print(f"Extracted features for {db.num_images} images")
+print(f"Matched {db.num_matched_image_pairs} image pairs")
+db.close()
+```
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Camera" icon="camera" href="/scene/camera">
+    Camera model objects
+  </Card>
+  <Card title="Image" icon="image" href="/scene/image">
+    Image pose and keypoints
+  </Card>
+  <Card title="Reconstruction" icon="layer-group" href="/scene/reconstruction">
+    The full sparse reconstruction container
+  </Card>
+  <Card title="Feature extraction" icon="wand-magic-sparkles" href="/pipeline/feature-extraction">
+    Populating the database with SIFT features
+  </Card>
+</CardGroup>

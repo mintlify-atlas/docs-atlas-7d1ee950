@@ -1,0 +1,206 @@
+---
+title: "Image"
+description: "Work with pycolmap.Image objects: image pose, keypoints, and 2D–3D point associations."
+keywords: ["image", "pose", "cam_from_world", "Rigid3d", "keypoints", "points2D", "registration"]
+---
+
+A `pycolmap.Image` represents a single photograph in the reconstruction. It stores the image name, a reference to its camera model, a 6-DoF pose (`cam_from_world`), and the list of detected keypoints (`points2D`). Each keypoint can optionally be linked to a triangulated 3D point.
+
+## Constructing an image
+
+```python
+import pycolmap
+
+# Empty image
+image = pycolmap.Image()
+
+# Fully specified
+image = pycolmap.Image(
+    name="images/frame_0001.jpg",
+    camera_id=1,
+    cam_from_world=pycolmap.Rigid3d(),   # identity pose
+    id=42,
+)
+
+# With keypoints supplied as a list of Point2D
+image = pycolmap.Image(
+    name="images/frame_0001.jpg",
+    points2D=[pycolmap.Point2D(xy=[320.0, 240.0])],
+    cam_from_world=pycolmap.Rigid3d(),
+    camera_id=1,
+    id=42,
+)
+
+# With keypoints supplied as a list of 2D numpy arrays
+import numpy as np
+image = pycolmap.Image(
+    name="images/frame_0001.jpg",
+    keypoints=[np.array([320.0, 240.0]), np.array([400.0, 300.0])],
+    camera_id=1,
+)
+```
+
+## Properties
+
+```python
+image.image_id         # int — unique ID within the reconstruction
+image.camera_id        # int — ID of the associated Camera
+image.name             # str — path/filename of the image
+image.cam_from_world   # pycolmap.Rigid3d — world→camera transform (pose)
+image.cam_from_world_prior  # pycolmap.Rigid3d — prior pose (e.g. from EXIF/GPS)
+image.points2D         # ListPoint2D — all detected keypoints
+image.registered       # bool — whether the image has a valid pose
+```
+
+## Image pose: `cam_from_world`
+
+The pose is stored as a `pycolmap.Rigid3d` — a rigid body transform that maps 3D points from world space into camera space:
+
+```
+p_camera = cam_from_world * p_world
+```
+
+```python
+cfw = image.cam_from_world
+
+# Rotation (as a quaternion or 3x3 matrix)
+cfw.rotation          # pycolmap.Rotation3d
+cfw.rotation.matrix() # 3x3 numpy array
+
+# Translation vector (camera centre in world coords is -R^T @ t)
+cfw.translation       # numpy array of shape (3,)
+
+# The camera centre (projection centre) in world space
+center = image.projection_center()  # shape (3,)
+
+# The principal viewing direction in world space
+direction = image.viewing_direction()  # shape (3,)
+```
+
+### Composing the pose with a 3D point
+
+```python
+import numpy as np
+
+camera = reconstruction.cameras[image.camera_id]
+point3D = reconstruction.points3D[point3D_id]
+
+# Transform from world into camera space, then project to pixels
+uv = camera.img_from_cam(image.cam_from_world * point3D.xyz)
+```
+
+## Accessing keypoints
+
+`image.points2D` is a list of `pycolmap.Point2D` objects. Each stores a pixel coordinate and an optional link to a 3D point.
+
+```python
+# Total keypoints detected in this image
+print(image.num_points2D())     # int
+
+# Number of keypoints that are triangulated
+print(image.num_points3D)       # int (read-only property)
+
+# Iterate over all keypoints
+for idx, p2d in enumerate(image.points2D):
+    print(idx, p2d.xy, p2d.point3D_id)
+
+# Access a specific keypoint by index
+p2d = image.points2D[42]
+print(p2d.xy)           # numpy array [x, y]
+print(p2d.has_point3D())  # True if linked to a 3D point
+```
+
+### Getting only triangulated keypoints
+
+```python
+# Indices of triangulated keypoints
+triangulated_ids = image.get_valid_point2D_ids()  # list[int]
+
+# Point2D objects for triangulated keypoints only
+triangulated_pts = image.get_valid_points2D()     # list[Point2D]
+```
+
+## Linking keypoints to 3D points
+
+```python
+# Associate keypoint idx with a 3D point
+image.set_point3D_for_point2D(point2D_idx=42, point3D_id=1337)
+
+# Remove the association
+image.reset_point3D_for_point2D(point2D_idx=42)
+
+# Check whether a 2D point has an associated 3D point
+image.has_point3D(point3D_id)     # True if any keypoint links to point3D_id
+image.is_point3D_visible(point2D_idx)  # True if that keypoint has a correspondence
+                                       # in another image that has a 3D point
+```
+
+## Registration state
+
+An image is _registered_ when it has been assigned a valid `cam_from_world` pose.
+
+```python
+image.registered           # bool — read/write
+image.has_camera()         # bool — whether camera_id has been set
+```
+
+## Observation counts
+
+```python
+image.num_points2D()       # total keypoints
+image.num_points3D         # triangulated keypoints
+image.num_observations     # keypoints with at least one correspondence
+image.num_correspondences  # total correspondences across all keypoints
+image.num_visible_points3D()  # keypoints with a triangulated correspondence
+image.point3D_visibility_score()  # score capturing spatial distribution
+```
+
+## Example: listing all images in a reconstruction
+
+```python
+import pycolmap
+
+reconstruction = pycolmap.Reconstruction("path/to/reconstruction/dir")
+
+for image_id, image in reconstruction.images.items():
+    camera = reconstruction.cameras[image.camera_id]
+    center = image.projection_center()
+    print(
+        f"Image {image_id}: {image.name}  "
+        f"camera={camera.model}  "
+        f"triangulated={image.num_points3D}/{image.num_points2D()}  "
+        f"center={center}"
+    )
+```
+
+## Example: reprojecting all triangulated points for one image
+
+```python
+import numpy as np
+import pycolmap
+
+reconstruction = pycolmap.Reconstruction("path/to/reconstruction/dir")
+image_id = 1
+image  = reconstruction.images[image_id]
+camera = reconstruction.cameras[image.camera_id]
+
+for p2d in image.get_valid_points2D():
+    p3d = reconstruction.points3D[p2d.point3D_id]
+    uv_proj = camera.img_from_cam(image.cam_from_world * p3d.xyz)
+    residual = np.linalg.norm(uv_proj - p2d.xy)
+    print(f"observed {p2d.xy}, projected {uv_proj}, residual {residual:.3f} px")
+```
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Camera" icon="camera" href="/scene/camera">
+    Camera models and intrinsics
+  </Card>
+  <Card title="Point3D" icon="cube" href="/scene/point3d">
+    3D point coordinates and track
+  </Card>
+  <Card title="Reconstruction" icon="layer-group" href="/scene/reconstruction">
+    The full sparse reconstruction container
+  </Card>
+</CardGroup>

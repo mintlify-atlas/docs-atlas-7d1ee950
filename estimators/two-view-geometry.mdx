@@ -1,0 +1,306 @@
+---
+title: "Two-view geometry"
+description: "Jointly estimate and classify two-view geometry between calibrated cameras, handling planar, panoramic, and calibrated configurations."
+---
+
+Estimating two-view geometry goes beyond fitting a single model: the correct geometric relationship depends on the scene structure and camera motion. `pycolmap.estimate_calibrated_two_view_geometry` estimates both an essential matrix and a homography, then selects the model that best explains the correspondences and classifies the configuration.
+
+## `pycolmap.estimate_calibrated_two_view_geometry`
+
+```python
+geometry = pycolmap.estimate_calibrated_two_view_geometry(
+    camera1,                          # pycolmap.Camera for image 1
+    points1,                          # Nx2 float array — pixel coordinates in image 1
+    camera2,                          # pycolmap.Camera for image 2
+    points2,                          # Nx2 float array — pixel coordinates in image 2
+    matches = None,                   # Nx2 int array of (idx1, idx2) pairs, optional
+    options = pycolmap.TwoViewGeometryOptions(),
+)
+# Returns: pycolmap.TwoViewGeometry
+```
+
+When `matches` is `None`, the function assumes `points1[i]` corresponds to `points2[i]` (i.e. the index is used as the match index). Pass an explicit `matches` array when working with feature indices from a COLMAP database.
+
+## `pycolmap.estimate_two_view_geometry`
+
+An uncalibrated variant that also estimates a fundamental matrix:
+
+```python
+geometry = pycolmap.estimate_two_view_geometry(
+    camera1,
+    points1,
+    camera2,
+    points2,
+    matches = None,
+    options = pycolmap.TwoViewGeometryOptions(),
+)
+```
+
+The API and return type are identical to the calibrated variant.
+
+## `pycolmap.estimate_two_view_geometry_pose`
+
+Computes the relative pose for an already-classified `TwoViewGeometry` object. Call this after `estimate_calibrated_two_view_geometry` with `options.compute_relative_pose=False` to defer the pose computation.
+
+```python
+pycolmap.estimate_two_view_geometry_pose(
+    camera1,
+    points1,
+    camera2,
+    points2,
+    geometry,   # pycolmap.TwoViewGeometry — modified in place
+)
+```
+
+## Parameters
+
+<ParamField path="camera1" type="pycolmap.Camera" required>
+  Camera model for image 1.
+</ParamField>
+
+<ParamField path="points1" type="numpy.ndarray" required>
+  Nx2 array of pixel coordinates in image 1.
+</ParamField>
+
+<ParamField path="camera2" type="pycolmap.Camera" required>
+  Camera model for image 2.
+</ParamField>
+
+<ParamField path="points2" type="numpy.ndarray" required>
+  Nx2 array of pixel coordinates in image 2.
+</ParamField>
+
+<ParamField path="matches" type="numpy.ndarray">
+  Optional Nx2 integer array where each row is `[idx1, idx2]` — an index into `points1` and `points2` respectively. When omitted, the identity correspondence (`i → i`) is assumed.
+</ParamField>
+
+<ParamField path="options" type="pycolmap.TwoViewGeometryOptions">
+  Model selection and RANSAC parameters. See [TwoViewGeometryOptions](#twoviewgeometryoptions) below.
+</ParamField>
+
+## Return value: `TwoViewGeometry`
+
+Returns a `pycolmap.TwoViewGeometry` object with the following read-only fields:
+
+<ResponseField name="config" type="pycolmap.TwoViewGeometryConfiguration">
+  Enum value describing the estimated geometric configuration. See [TwoViewGeometryConfiguration](#twoviewgeometryconfiguration) below.
+</ResponseField>
+
+<ResponseField name="E" type="numpy.ndarray">
+  3×3 essential matrix (may be unset depending on `config`).
+</ResponseField>
+
+<ResponseField name="F" type="numpy.ndarray">
+  3×3 fundamental matrix (set by `estimate_two_view_geometry`).
+</ResponseField>
+
+<ResponseField name="H" type="numpy.ndarray">
+  3×3 homography matrix (may be unset depending on `config`).
+</ResponseField>
+
+<ResponseField name="cam2_from_cam1" type="pycolmap.Rigid3d">
+  Relative pose of camera 2 in the frame of camera 1. Only populated when `options.compute_relative_pose=True` or after calling `estimate_two_view_geometry_pose`.
+</ResponseField>
+
+<ResponseField name="inlier_matches" type="numpy.ndarray">
+  Mx2 integer array of inlier match indices `[idx1, idx2]`.
+</ResponseField>
+
+<ResponseField name="tri_angle" type="float">
+  Median triangulation angle in degrees across the inlier matches. A low angle indicates the cameras are nearly co-located or the scene is far away.
+</ResponseField>
+
+### `TwoViewGeometry.invert()`
+
+Swaps the roles of camera 1 and camera 2, updating `cam2_from_cam1` and the inlier match indices accordingly.
+
+```python
+geometry.invert()  # modifies in place
+```
+
+## TwoViewGeometryConfiguration
+
+The `config` field is one of the following enum values:
+
+| Value | Meaning |
+|---|---|
+| `UNDEFINED` | Estimation was not run or the result is not valid. |
+| `DEGENERATE` | Too few inliers to determine a reliable model. |
+| `CALIBRATED` | General 3D scene; essential matrix is the best model. |
+| `UNCALIBRATED` | General 3D scene without calibration; fundamental matrix is the best model. |
+| `PLANAR` | Scene is planar; homography provides a better fit than E. |
+| `PANORAMIC` | Camera undergoes pure rotation; homography is the appropriate model. |
+| `PLANAR_OR_PANORAMIC` | Homography fits well but the distinction between planar and panoramic is ambiguous. |
+| `WATERMARK` | A significant portion of the inliers are clustered at the image border (likely a watermark). |
+| `MULTIPLE` | Multiple overlapping models were detected. |
+
+```python
+if geometry.config == pycolmap.TwoViewGeometryConfiguration.CALIBRATED:
+    # General 3D scene — use E and cam2_from_cam1
+    ...
+elif geometry.config == pycolmap.TwoViewGeometryConfiguration.PLANAR_OR_PANORAMIC:
+    # Use H
+    ...
+elif geometry.config == pycolmap.TwoViewGeometryConfiguration.DEGENERATE:
+    # Not enough inliers
+    ...
+```
+
+## TwoViewGeometryOptions
+
+Pass as `options`, either as an object or a dict.
+
+```python
+opts = pycolmap.TwoViewGeometryOptions()
+print(opts)  # show all fields and defaults
+```
+
+<ParamField path="ransac" type="pycolmap.RANSACOptions">
+  RANSAC parameters shared across all internal estimators (E, F, H). See [RANSACOptions](/estimators/overview#ransacoptions).
+</ParamField>
+
+<ParamField path="min_num_inliers" type="int">
+  Minimum number of inliers for a model to be accepted. Results with fewer inliers are classified as `DEGENERATE`.
+</ParamField>
+
+<ParamField path="min_E_F_inlier_ratio" type="float">
+  Minimum ratio of E/F inliers to total correspondences. Used to distinguish well-constrained from degenerate cases.
+</ParamField>
+
+<ParamField path="max_H_inlier_ratio" type="float">
+  Maximum fraction of correspondences that can be explained by H before the configuration is classified as `PLANAR_OR_PANORAMIC` instead of `CALIBRATED`.
+</ParamField>
+
+<ParamField path="watermark_min_inlier_ratio" type="float">
+  Minimum fraction of inliers within the border region for watermark detection.
+</ParamField>
+
+<ParamField path="watermark_border_size" type="float">
+  Fractional width of the border region used for watermark detection (0–0.5).
+</ParamField>
+
+<ParamField path="detect_watermark" type="bool">
+  If `True`, enable watermark detection and classification.
+</ParamField>
+
+<ParamField path="multiple_ignore_watermark" type="bool">
+  When `multiple_models=True`, ignore watermark models in the multi-model output.
+</ParamField>
+
+<ParamField path="force_H_use" type="bool">
+  Force the homography model regardless of the inlier ratio comparison.
+</ParamField>
+
+<ParamField path="compute_relative_pose" type="bool">
+  If `True`, decompose E (or H) into a relative pose and populate `cam2_from_cam1`.
+</ParamField>
+
+<ParamField path="multiple_models" type="bool">
+  If `True`, estimate multiple models and return all detected configurations.
+</ParamField>
+
+## Sampson error utility
+
+PyCOLMAP also exposes a utility for computing the symmetric Sampson error for a given E or F matrix:
+
+```python
+residuals = pycolmap.squared_sampson_error(
+    points2D1,   # Nx2 float array
+    points2D2,   # Nx2 float array
+    E,           # 3x3 essential or fundamental matrix
+)
+# Returns: list of N squared Sampson errors
+```
+
+## Examples
+
+<CodeGroup>
+
+```python Basic usage
+import numpy as np
+import pycolmap
+
+camera1 = pycolmap.Camera(
+    model="SIMPLE_PINHOLE",
+    width=1920, height=1080,
+    params=[800.0, 960.0, 540.0],
+)
+camera2 = pycolmap.Camera(
+    model="SIMPLE_PINHOLE",
+    width=1920, height=1080,
+    params=[800.0, 960.0, 540.0],
+)
+
+points1 = np.array([[u1, v1], ...])  # Nx2
+points2 = np.array([[u1, v1], ...])  # Nx2
+
+geometry = pycolmap.estimate_calibrated_two_view_geometry(
+    camera1, points1, camera2, points2
+)
+print(geometry.config)         # TwoViewGeometryConfiguration
+print(geometry.inlier_matches) # Mx2 int array
+```
+
+```python With explicit matches
+import numpy as np
+import pycolmap
+
+# matches[i] = [idx_in_points1, idx_in_points2]
+matches = np.array([[0, 2], [1, 5], [2, 7], ...], dtype=np.uint32)
+
+geometry = pycolmap.estimate_calibrated_two_view_geometry(
+    camera1, points1, camera2, points2,
+    matches=matches,
+)
+```
+
+```python Compute relative pose
+import pycolmap
+
+opts = pycolmap.TwoViewGeometryOptions()
+opts.compute_relative_pose = True
+
+geometry = pycolmap.estimate_calibrated_two_view_geometry(
+    camera1, points1, camera2, points2,
+    options=opts,
+)
+
+if geometry.config == pycolmap.TwoViewGeometryConfiguration.CALIBRATED:
+    print(geometry.cam2_from_cam1)   # pycolmap.Rigid3d
+    print(geometry.tri_angle)        # median triangulation angle
+```
+
+```python Classification check
+import pycolmap
+
+Conf = pycolmap.TwoViewGeometryConfiguration
+
+geometry = pycolmap.estimate_calibrated_two_view_geometry(
+    camera1, points1, camera2, points2,
+    options={"compute_relative_pose": True},
+)
+
+match (geometry.config):
+    case Conf.CALIBRATED:
+        pose = geometry.cam2_from_cam1
+    case Conf.PLANAR_OR_PANORAMIC | Conf.PLANAR | Conf.PANORAMIC:
+        H = geometry.H
+    case Conf.DEGENERATE:
+        print("Not enough inliers")
+```
+
+```python Sampson error
+import pycolmap
+
+geometry = pycolmap.estimate_calibrated_two_view_geometry(
+    camera1, points1, camera2, points2
+)
+if geometry.E is not None:
+    errors = pycolmap.squared_sampson_error(points1, points2, geometry.E)
+```
+
+</CodeGroup>
+
+<Note>
+  The `tri_angle` field is only meaningful when `compute_relative_pose=True`. A triangulation angle below ~2° typically means the cameras are too close together for reliable depth estimation.
+</Note>

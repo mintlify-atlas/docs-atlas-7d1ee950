@@ -1,0 +1,121 @@
+---
+title: "Homography estimation"
+description: "Estimate a planar homography from 2D point correspondences using LORANSAC and the 4-point DLT algorithm."
+---
+
+A homography (projective transformation) maps pixel coordinates from one view to another when the scene is planar or when the camera undergoes a pure rotation. `pycolmap.homography_matrix_estimation` estimates the 3×3 matrix H from a set of point correspondences.
+
+## `pycolmap.homography_matrix_estimation`
+
+```python
+result = pycolmap.homography_matrix_estimation(
+    points2D1,                        # Nx2 float array — pixel coordinates in image 1
+    points2D2,                        # Nx2 float array — pixel coordinates in image 2
+    estimation_options = pycolmap.RANSACOptions(),
+)
+```
+
+The estimator uses **LORANSAC** with the **4-point DLT algorithm** for both the minimal sampling and the local optimization steps.
+
+## Parameters
+
+<ParamField path="points2D1" type="numpy.ndarray" required>
+  Nx2 array of pixel coordinates in image 1. Each row corresponds to the same feature point as the row at the same index in `points2D2`.
+</ParamField>
+
+<ParamField path="points2D2" type="numpy.ndarray" required>
+  Nx2 array of pixel coordinates in image 2.
+</ParamField>
+
+<ParamField path="estimation_options" type="pycolmap.RANSACOptions">
+  RANSAC parameters. `max_error` is the symmetric transfer error threshold in pixels. See [RANSACOptions](/estimators/overview#ransacoptions) for all fields and defaults.
+</ParamField>
+
+## Return value
+
+Returns a `dict` on success, or `None` if RANSAC fails.
+
+<ResponseField name="H" type="numpy.ndarray">
+  3×3 homography matrix (unnormalized). Maps homogeneous pixel coordinates in image 1 to image 2: `p2 ~ H @ p1`.
+</ResponseField>
+
+<ResponseField name="num_inliers" type="int">
+  Number of correspondences classified as inliers.
+</ResponseField>
+
+<ResponseField name="inliers" type="numpy.ndarray">
+  Boolean array of length N. `inliers[i]` is `True` if the transfer error for correspondence `i` is below `max_error`.
+</ResponseField>
+
+## Algorithm details
+
+<AccordionGroup>
+  <Accordion title="4-point DLT">
+    The Direct Linear Transform (DLT) formulates homography estimation as a homogeneous linear system from four or more point correspondences, then extracts the solution via SVD. The result satisfies the rank-1 constraint by construction. DLT is sensitive to the scale of the input coordinates; COLMAP normalizes the points before fitting.
+  </Accordion>
+  <Accordion title="Symmetric transfer error">
+    The RANSAC residual is the symmetric transfer error: the average of the forward transfer error (`||p2 - H*p1||`) and the backward transfer error (`||p1 - H_inv*p2||`) in pixels. This is more numerically stable than using only the forward error.
+  </Accordion>
+</AccordionGroup>
+
+## Use cases
+
+- **Planar scenes** — buildings, floors, whiteboards, or any surface that is approximately flat relative to the camera distance.
+- **Pure rotation** — panorama stitching where the camera rotates around its optical center with no translation.
+- **Two-view geometry classification** — the ratio of homography inliers to fundamental matrix inliers is used in `pycolmap.estimate_calibrated_two_view_geometry` to distinguish planar/panoramic scenes from general 3D structure. See [Two-view geometry](/estimators/two-view-geometry).
+
+<Warning>
+  A homography cannot capture the geometry of a general 3D scene with camera translation. If the scene has significant depth variation, use the essential or fundamental matrix estimator instead.
+</Warning>
+
+## Examples
+
+<CodeGroup>
+
+```python Minimal
+import numpy as np
+import pycolmap
+
+points1 = np.array([[u1, v1], [u2, v2], ...])  # Nx2
+points2 = np.array([[u1, v1], [u2, v2], ...])  # Nx2
+
+result = pycolmap.homography_matrix_estimation(points1, points2)
+if result is not None:
+    H = result["H"]  # 3x3 numpy array
+    print(f"Inliers: {result['num_inliers']} / {len(points1)}")
+```
+
+```python Custom threshold
+import pycolmap
+
+result = pycolmap.homography_matrix_estimation(
+    points1, points2,
+    estimation_options={"max_error": 2.0},
+)
+```
+
+```python Warp image 1 to image 2 coordinate frame
+import cv2
+import numpy as np
+import pycolmap
+
+result = pycolmap.homography_matrix_estimation(points1, points2)
+if result is not None:
+    H = result["H"]
+    # Warp using OpenCV
+    warped = cv2.warpPerspective(img1, H, (img2.shape[1], img2.shape[0]))
+```
+
+```python Check inlier ratio
+import pycolmap
+
+result = pycolmap.homography_matrix_estimation(points1, points2)
+if result is not None:
+    inlier_ratio = result["num_inliers"] / len(points1)
+    if inlier_ratio > 0.7:
+        print("Scene is likely planar or camera underwent pure rotation")
+    else:
+        print("Likely a general 3D scene; consider using F or E estimator")
+```
+
+</CodeGroup>

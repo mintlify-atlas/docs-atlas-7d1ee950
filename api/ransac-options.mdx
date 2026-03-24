@@ -1,0 +1,125 @@
+---
+title: "RANSACOptions"
+description: "Configuration for RANSAC-based robust estimators used in two-view geometry, pose estimation, and homography estimation."
+---
+
+## Class signature
+
+```python
+pycolmap.RANSACOptions(
+    max_error=4.0,
+    min_inlier_ratio=0.01,
+    confidence=0.9999,
+    min_num_trials=1000,
+    max_num_trials=100000,
+    dyn_num_trials_multiplier=3.0,
+)
+```
+
+`RANSACOptions` is accepted by all PyCOLMAP estimators that perform robust fitting: essential matrix, fundamental matrix, homography, and absolute pose estimation.
+
+## Fields
+
+<ParamField path="max_error" type="float" default="4.0">
+  Maximum residual for a correspondence to be considered an inlier. For image-space estimators (fundamental matrix, homography) this is the Sampson distance or reprojection error in pixels. For homogeneous residuals, set `max_error_is_squared=True` and provide the squared threshold.
+</ParamField>
+
+<ParamField path="min_inlier_ratio" type="float" default="0.01">
+  Minimum fraction of inliers required for a RANSAC hypothesis to be accepted. A value of `0.01` means at least 1% of all correspondences must be inliers. Increase this for cleaner data to speed up convergence.
+</ParamField>
+
+<ParamField path="confidence" type="float" default="0.9999">
+  Desired probability that at least one all-inlier sample has been drawn. Higher values require more trials. The theoretical required number of trials is computed as:
+
+  ```
+  num_trials = log(1 - confidence) / log(1 - inlier_ratio^min_sample_size)
+  ```
+</ParamField>
+
+<ParamField path="min_num_trials" type="int" default="1000">
+  Minimum number of RANSAC iterations regardless of the early-exit criterion.
+</ParamField>
+
+<ParamField path="max_num_trials" type="int" default="100000">
+  Hard cap on the number of RANSAC iterations. Prevents unbounded runtime on near-degenerate data.
+</ParamField>
+
+<ParamField path="dyn_num_trials_multiplier" type="float" default="3.0">
+  Multiplier applied to the dynamically estimated number of required trials. Increase this for a higher safety margin when inlier ratios are uncertain.
+</ParamField>
+
+## Usage with estimators
+
+`RANSACOptions` is passed to the following estimators via the `estimation_options` parameter:
+
+| Function | Notes |
+|---|---|
+| `pycolmap.essential_matrix_estimation()` | Sampson residual in pixels |
+| `pycolmap.fundamental_matrix_estimation()` | Sampson residual in pixels |
+| `pycolmap.homography_matrix_estimation()` | Symmetric transfer error in pixels |
+| `pycolmap.pose_from_points()` (P3P / EPnP) | Reprojection error in pixels |
+
+```python
+opts = pycolmap.RANSACOptions()
+opts.max_error = 2.0
+opts.min_inlier_ratio = 0.05
+opts.confidence = 0.999
+```
+
+## Examples
+
+<CodeGroup>
+
+```python Essential matrix
+import pycolmap
+
+ransac_opts = pycolmap.RANSACOptions()
+ransac_opts.max_error = 1.5  # tighter threshold for calibrated cameras
+ransac_opts.confidence = 0.9999
+
+result = pycolmap.essential_matrix_estimation(
+    points1=matches[:, :2],
+    points2=matches[:, 2:],
+    camera1=cam1,
+    camera2=cam2,
+    estimation_options=ransac_opts,
+)
+if result is not None:
+    print(result["E"])          # 3x3 essential matrix
+    print(result["num_inliers"])
+```
+
+```python Homography
+import pycolmap
+
+ransac_opts = pycolmap.RANSACOptions()
+ransac_opts.max_error = 3.0
+ransac_opts.min_num_trials = 500
+
+result = pycolmap.homography_matrix_estimation(
+    points1=pts1,
+    points2=pts2,
+    estimation_options=ransac_opts,
+)
+```
+
+```python Absolute pose (P3P)
+import pycolmap
+
+ransac_opts = pycolmap.RANSACOptions()
+ransac_opts.max_error = 12.0  # pixels, for a wide-FOV camera
+ransac_opts.min_inlier_ratio = 0.1
+
+result = pycolmap.absolute_pose_estimation(
+    points2D=kpts,
+    points3D=pts3d,
+    camera=camera,
+    estimation_options=ransac_opts,
+)
+```
+
+</CodeGroup>
+
+<Note>
+  `max_error` is in pixel units for all image-space estimators. Setting it too tight on distorted or imprecisely calibrated cameras will cause RANSAC to return few or no inliers.
+</Note>

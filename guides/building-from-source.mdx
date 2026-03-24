@@ -1,0 +1,208 @@
+---
+title: "Building from source"
+description: "Build PyCOLMAP from source to enable CUDA support, CGAL support, or to use a platform without a pre-built wheel."
+---
+
+Pre-built wheels on PyPI cover Linux, macOS, and Windows but do not include CUDA or CGAL support. Building from source is required when you need GPU-accelerated extraction or matching, dense reconstruction with `patch_match_stereo`, or Delaunay triangulation.
+
+## Version compatibility
+
+Match the PyCOLMAP version you want to install with the correct COLMAP version:
+
+| PyCOLMAP version | Required COLMAP version |
+|---|---|
+| 0.4.0 | 3.8 |
+| 0.5.0 | 3.9.1 |
+| 0.6.0 | 3.9.1 |
+
+<Warning>
+  Using a mismatched COLMAP version will cause build failures or undefined behavior at runtime. Always install the exact COLMAP version listed for your target PyCOLMAP release.
+</Warning>
+
+## Prerequisites
+
+- Git
+- CMake 3.20 or later
+- A C++17-capable compiler (GCC, Clang, or MSVC)
+- Python 3.8 or later with `pip`
+- COLMAP installed from source (see step 1 below)
+- For CUDA support: NVIDIA GPU, CUDA Toolkit, and COLMAP compiled with `CUDA_ENABLED=ON`
+- For CGAL support: COLMAP compiled with `CGAL_ENABLED=ON`
+
+## Build steps
+
+<Steps>
+  <Step title="Install COLMAP from source">
+    Follow the [official COLMAP installation guide](https://colmap.github.io/install.html) to build and install COLMAP. Checkout the exact tag that matches your target PyCOLMAP version.
+
+    <Tabs>
+      <Tab title="Linux">
+        Install build dependencies and clone COLMAP:
+
+        ```bash
+        git clone https://github.com/colmap/colmap.git
+        cd colmap
+        git checkout 3.9.1
+        mkdir build && cd build
+        cmake .. -GNinja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DGUI_ENABLED=OFF
+        ninja install
+        ```
+
+        To enable CUDA support, add `-DCUDA_ENABLED=ON`. To enable CGAL, add `-DCGAL_ENABLED=ON`.
+
+        ```bash
+        cmake .. -GNinja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DGUI_ENABLED=OFF \
+            -DCUDA_ENABLED=ON \
+            -DCGAL_ENABLED=ON
+        ```
+      </Tab>
+      <Tab title="macOS">
+        Install dependencies via Homebrew, then build COLMAP:
+
+        ```bash
+        brew install git cmake ninja llvm
+
+        git clone https://github.com/colmap/colmap.git
+        cd colmap
+        git checkout 3.9.1
+        mkdir build && cd build
+        cmake .. -GNinja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DGUI_ENABLED=OFF \
+            -DCUDA_ENABLED=OFF
+        ninja install
+        ```
+
+        <Note>
+          CUDA is not available on macOS. Apple Silicon builds require `-DSIMD_ENABLED=OFF`.
+        </Note>
+      </Tab>
+      <Tab title="Windows">
+        Windows builds use [vcpkg](https://vcpkg.io/) to manage C++ dependencies. Install vcpkg and use the COLMAP Azure Pipelines dependency list:
+
+        ```powershell
+        git clone https://github.com/microsoft/vcpkg $env:VCPKG_INSTALLATION_ROOT
+        cd $env:VCPKG_INSTALLATION_ROOT
+        ./bootstrap-vcpkg.bat
+        ./vcpkg.exe integrate install
+
+        git clone https://github.com/colmap/colmap.git
+        cd colmap
+        git checkout 3.9.1
+        mkdir build
+        cd build
+        cmake .. `
+          -GNinja `
+          -DCMAKE_BUILD_TYPE=Release `
+          -DGUI_ENABLED=OFF `
+          -DCUDA_ENABLED=OFF `
+          -DCGAL_ENABLED=OFF `
+          -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
+          -DVCPKG_TARGET_TRIPLET="x64-windows"
+        ninja install
+        ```
+
+        To enable CUDA on Windows, set `-DCUDA_ENABLED=ON` and ensure the CUDA Toolkit is installed.
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Clone PyCOLMAP">
+    Clone the PyCOLMAP repository at the tag matching your installed COLMAP version:
+
+    ```bash
+    git clone -b 0.6.0 https://github.com/colmap/pycolmap.git
+    cd pycolmap
+    ```
+  </Step>
+
+  <Step title="Build and install">
+    <Tabs>
+      <Tab title="Linux / macOS">
+        ```bash
+        python -m pip install .
+        ```
+      </Tab>
+      <Tab title="Windows">
+        Pass the vcpkg toolchain file and target triplet as CMake defines:
+
+        ```powershell
+        py -m pip install . `
+            --cmake.define.CMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
+            --cmake.define.VCPKG_TARGET_TRIPLET="x64-windows"
+        ```
+
+        <Warning>
+          Building without the vcpkg toolchain file will fail to locate COLMAP's C++ dependencies. Ensure `VCPKG_INSTALLATION_ROOT` is set before running pip.
+        </Warning>
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Verify the build">
+    Confirm the package installed and check whether CUDA support is available:
+
+    ```python
+    import pycolmap
+
+    print(pycolmap.__version__)
+    print(pycolmap.has_cuda)  # True if built against a CUDA-enabled COLMAP
+    ```
+
+    If `has_cuda` is `False` and you expected CUDA support, verify that COLMAP was built with `-DCUDA_ENABLED=ON` and that the CUDA Toolkit is accessible.
+  </Step>
+</Steps>
+
+## Enabling CUDA
+
+CUDA support in PyCOLMAP is inherited from the underlying COLMAP installation. There is no separate flag in PyCOLMAP's own build.
+
+To get a CUDA-enabled PyCOLMAP build:
+
+1. Install the CUDA Toolkit matching your GPU driver version.
+2. Build COLMAP from source with `-DCUDA_ENABLED=ON`.
+3. Build PyCOLMAP from source (steps above). PyCOLMAP will detect COLMAP's CUDA support automatically.
+
+```python
+# After a CUDA-enabled build
+import pycolmap
+assert pycolmap.has_cuda, "CUDA not available"
+
+pycolmap.extract_features(
+    database_path,
+    image_dir,
+    device=pycolmap.Device.cuda,
+)
+```
+
+## Enabling CGAL
+
+CGAL enables Delaunay triangulation during dense stereo fusion. To activate it:
+
+1. Install CGAL on your system (e.g., `apt install libcgal-dev` on Debian/Ubuntu).
+2. Build COLMAP from source with `-DCGAL_ENABLED=ON`.
+3. Build PyCOLMAP from source. CGAL support is picked up automatically.
+
+## Build system details
+
+PyCOLMAP uses [scikit-build-core](https://github.com/scikit-build/scikit-build-core) with pybind11. The build requires:
+
+- `scikit-build-core >= 0.3.3`
+- `pybind11 == 2.11.1`
+
+These are declared in `pyproject.toml` as build-system requirements and are installed automatically by pip.
+
+## Next steps
+
+<Columns cols={2}>
+  <Card title="CUDA support" icon="microchip" href="/guides/cuda-support">
+    Understand which pipeline stages use the GPU and how to select a device at runtime.
+  </Card>
+  <Card title="SIFT extraction" icon="image" href="/guides/sift-extraction">
+    Extract keypoints and descriptors from NumPy arrays using pycolmap.Sift.
+  </Card>
+</Columns>

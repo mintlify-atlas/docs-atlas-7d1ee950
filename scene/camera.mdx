@@ -1,0 +1,261 @@
+---
+title: "Camera"
+description: "Create and use pycolmap.Camera objects: camera models, parameters, and projection methods."
+keywords: ["camera", "camera model", "intrinsics", "focal length", "distortion", "projection"]
+---
+
+A `pycolmap.Camera` stores the intrinsic parameters of a camera — its resolution, model, focal length, principal point, and any distortion parameters — and provides methods to project points between image and camera space.
+
+## Creating a camera
+
+Pass the camera model name, image dimensions, and the parameter vector:
+
+```python
+import pycolmap
+
+camera = pycolmap.Camera(
+    model="SIMPLE_PINHOLE",
+    width=1920,
+    height=1080,
+    params=[1200.0, 960.0, 540.0],  # f, cx, cy
+)
+```
+
+You can also use the static factory:
+
+```python
+camera = pycolmap.Camera.create(
+    camera_id=1,
+    model="PINHOLE",
+    focal_length=1200.0,
+    width=1920,
+    height=1080,
+)
+```
+
+<Note>
+  `Camera.create` initialises a pinhole camera with the given focal length. Extra distortion parameters default to zero and the principal point is set to the image centre.
+</Note>
+
+## Camera models
+
+COLMAP supports a range of camera models. Choose the simplest model that fits your data to avoid over-parametrisation.
+
+| Model name | `params` layout | Description |
+|---|---|---|
+| `SIMPLE_PINHOLE` | `f, cx, cy` | Single shared focal length, no distortion. |
+| `PINHOLE` | `fx, fy, cx, cy` | Separate horizontal and vertical focal lengths, no distortion. |
+| `SIMPLE_RADIAL` | `f, cx, cy, k` | Single focal length with one radial distortion term. |
+| `RADIAL` | `f, cx, cy, k1, k2` | Single focal length with two radial distortion terms. |
+| `OPENCV` | `fx, fy, cx, cy, k1, k2, p1, p2` | OpenCV full radial + tangential distortion model. |
+| `OPENCV_FISHEYE` | `fx, fy, cx, cy, k1, k2, k3, k4` | OpenCV fisheye model. |
+| `FULL_OPENCV` | `fx, fy, cx, cy, k1, k2, p1, p2, k3, k4, k5, k6` | Full OpenCV distortion with six radial terms. |
+| `FOV` | `fx, fy, cx, cy, omega` | Field-of-view model. |
+| `SIMPLE_RADIAL_FISHEYE` | `f, cx, cy, k` | Single focal length fisheye with one radial term. |
+| `RADIAL_FISHEYE` | `f, cx, cy, k1, k2` | Single focal length fisheye with two radial terms. |
+| `THIN_PRISM_FISHEYE` | `fx, fy, cx, cy, k1, k2, p1, p2, k3, k4, sx1, sy1` | Full thin-prism model. |
+
+Model names can be passed as strings or as `pycolmap.CameraModelId` enum values.
+
+## Properties
+
+```python
+camera.camera_id         # int — unique identifier (assigned by reconstruction or user)
+camera.model             # pycolmap.CameraModelId — the camera model enum
+camera.width             # int — image width in pixels
+camera.height            # int — image height in pixels
+camera.params            # numpy array — full parameter vector (model-dependent layout)
+camera.has_prior_focal_length  # bool — whether focal length came from EXIF
+```
+
+### Focal length and principal point
+
+```python
+camera.focal_length       # float — single shared focal length (read/write)
+camera.focal_length_x     # float — horizontal focal length (read/write)
+camera.focal_length_y     # float — vertical focal length (read/write)
+camera.mean_focal_length() # float — mean of focal_length_x and focal_length_y
+camera.principal_point_x  # float — cx in pixels (read/write)
+camera.principal_point_y  # float — cy in pixels (read/write)
+```
+
+### Parameter index helpers
+
+```python
+camera.focal_length_idxs()     # list[int] — indices of focal length params in params
+camera.principal_point_idxs()  # list[int] — indices of principal point params
+camera.extra_params_idxs()     # list[int] — indices of distortion / extra params
+camera.params_info             # str — human-readable description of params layout
+```
+
+Example:
+
+```python
+camera = pycolmap.Camera(model="OPENCV", width=640, height=480,
+                         params=[500, 500, 320, 240, -0.1, 0.05, 0.001, 0.001])
+print(camera.params_info)
+# fx, fy, cx, cy, k1, k2, p1, p2
+print(camera.focal_length_idxs())
+# [0, 1]
+print(camera.extra_params_idxs())
+# [4, 5, 6, 7]
+```
+
+## Projection methods
+
+### Project from camera space to image plane
+
+`img_from_cam` maps a 2D point in normalised camera coordinates `(x/z, y/z)` — or a homogeneous 3D point — to pixel coordinates, applying the distortion model.
+
+```python
+import numpy as np
+import pycolmap
+
+camera = pycolmap.Camera(
+    model="SIMPLE_RADIAL",
+    width=1920,
+    height=1080,
+    params=[900.0, 960.0, 540.0, -0.05],
+)
+
+# Single 2D point in normalised coordinates (x/z, y/z)
+uv = camera.img_from_cam(np.array([0.1, -0.05]))
+print(uv)  # pixel coordinates [x, y]
+
+# Batch: Nx2 array of normalised 2D points
+norm_pts = np.array([[0.0, 0.0], [0.1, 0.0], [0.0, 0.1]])
+pixels = camera.img_from_cam(norm_pts)  # list of Nx2 results
+
+# Batch: Nx3 array of 3D points (homogeneous division applied automatically)
+pts3d = np.array([[1.0, 0.0, 5.0], [0.0, 1.0, 5.0]])
+pixels = camera.img_from_cam(pts3d)
+```
+
+### Project a 3D scene point into an image
+
+To project a world-space 3D point into an image, first transform it with the image pose, then apply the camera model:
+
+```python
+# point3D.xyz is in world space
+# image.cam_from_world transforms world → camera
+cam_pt = image.cam_from_world * point3D.xyz      # 3D point in camera space
+uv = camera.img_from_cam(cam_pt[:2] / cam_pt[2]) # normalise then project
+
+# Shorter equivalent using Rigid3d's built-in __mul__:
+uv = camera.img_from_cam(image.cam_from_world * point3D.xyz)
+```
+
+### Project from image plane to camera space
+
+`cam_from_img` inverts the distortion and maps a pixel back to normalised camera coordinates:
+
+```python
+# Single pixel
+norm = camera.cam_from_img(np.array([960.0, 540.0]))
+print(norm)  # [0.0, 0.0] for the principal point
+
+# Batch
+pixels = np.array([[0.0, 0.0], [960.0, 540.0]])
+norm_pts = camera.cam_from_img(pixels)
+
+# From a list of Point2D objects
+norm_pts = camera.cam_from_img(image.points2D)
+```
+
+### Pixel threshold conversion
+
+Convert a pixel-space threshold to normalised camera-space:
+
+```python
+# Useful for converting reprojection error thresholds
+norm_threshold = camera.cam_from_img_threshold(4.0)  # 4 pixel threshold
+```
+
+## Calibration matrix
+
+```python
+K = camera.calibration_matrix()  # 3x3 numpy array
+```
+
+## Rescaling
+
+```python
+# Resize to explicit dimensions
+camera.rescale(new_width, new_height)
+
+# Resize by a scale factor
+camera.rescale(0.5)  # halve the resolution
+```
+
+Both overloads adjust focal length and principal point to match the new resolution.
+
+## Validation
+
+```python
+camera.verify_params()       # bool — True if param vector length matches the model
+camera.has_bogus_params()    # bool — True if any parameter has an implausible value
+```
+
+## Parameter string format
+
+```python
+# Serialize
+params_str = camera.params_to_string()  # e.g. "900,960,540,-0.05"
+
+# Deserialize
+camera.set_params_from_string("900,960,540,-0.05")
+```
+
+## Examples
+
+<CodeGroup>
+
+```python SIMPLE_PINHOLE
+camera = pycolmap.Camera(
+    model="SIMPLE_PINHOLE",
+    width=1920,
+    height=1080,
+    params=[1200.0, 960.0, 540.0],  # f, cx, cy
+)
+```
+
+```python PINHOLE
+camera = pycolmap.Camera(
+    model="PINHOLE",
+    width=1920,
+    height=1080,
+    params=[1200.0, 1200.0, 960.0, 540.0],  # fx, fy, cx, cy
+)
+```
+
+```python SIMPLE_RADIAL
+camera = pycolmap.Camera(
+    model="SIMPLE_RADIAL",
+    width=1920,
+    height=1080,
+    params=[900.0, 960.0, 540.0, -0.05],  # f, cx, cy, k
+)
+```
+
+```python OPENCV
+camera = pycolmap.Camera(
+    model="OPENCV",
+    width=640,
+    height=480,
+    params=[500.0, 500.0, 320.0, 240.0, -0.1, 0.05, 0.001, 0.001],
+    # fx, fy, cx, cy, k1, k2, p1, p2
+)
+```
+
+</CodeGroup>
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Reconstruction" icon="layer-group" href="/scene/reconstruction">
+    Loading and navigating full reconstructions
+  </Card>
+  <Card title="Image" icon="image" href="/scene/image">
+    Image pose and 2D keypoints
+  </Card>
+</CardGroup>

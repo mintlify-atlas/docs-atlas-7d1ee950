@@ -1,0 +1,209 @@
+---
+title: "Database"
+description: "SQLite database storing cameras, images, keypoints, descriptors, and feature matches."
+---
+
+## Class signature
+
+```python
+pycolmap.Database(path)
+```
+
+Opens (or creates) the COLMAP SQLite database at `path`. The database holds all intermediate data produced by feature extraction and matching before a `Reconstruction` is built.
+
+## Constructor
+
+<ParamField path="path" type="str or Path" required>
+  Path to the SQLite `.db` file. The file is created if it does not exist.
+</ParamField>
+
+```python
+import pycolmap
+
+db = pycolmap.Database("output/database.db")
+```
+
+## Lifecycle methods
+
+### `open(path)`
+
+Open a different database file after construction.
+
+### `close()`
+
+Close the database connection. The database is also closed when the `Database` object is garbage-collected.
+
+## Count properties
+
+<ResponseField name="num_cameras" type="int">
+  Number of cameras stored in the database.
+</ResponseField>
+
+<ResponseField name="num_images" type="int">
+  Number of images stored in the database.
+</ResponseField>
+
+<ResponseField name="num_keypoints" type="int">
+  Total number of keypoints across all images.
+</ResponseField>
+
+<ResponseField name="num_keypoints_for_image" type="dict[int, int]">
+  Mapping from `image_id` to the number of keypoints for that image.
+</ResponseField>
+
+<ResponseField name="num_descriptors" type="int">
+  Total number of descriptors across all images.
+</ResponseField>
+
+<ResponseField name="num_descriptors_for_image" type="dict[int, int]">
+  Mapping from `image_id` to the number of descriptors for that image.
+</ResponseField>
+
+<ResponseField name="num_matches" type="int">
+  Total number of raw feature matches across all image pairs.
+</ResponseField>
+
+<ResponseField name="num_inlier_matches" type="int">
+  Total number of geometrically verified inlier matches.
+</ResponseField>
+
+<ResponseField name="num_matched_image_pairs" type="int">
+  Number of image pairs that have raw matches.
+</ResponseField>
+
+<ResponseField name="num_verified_image_pairs" type="int">
+  Number of image pairs that have passed geometric verification.
+</ResponseField>
+
+## Read methods
+
+### `read_camera(camera_id)`
+
+Return the `Camera` with the given ID.
+
+<ParamField path="camera_id" type="int" required>
+  Database ID of the camera.
+</ParamField>
+
+### `read_all_cameras()`
+
+Return a list of all `Camera` objects in the database.
+
+### `read_image(image_id)`
+
+Return the `Image` with the given ID.
+
+<ParamField path="image_id" type="int" required>
+  Database ID of the image.
+</ParamField>
+
+### `read_image_with_name(name)`
+
+Return the `Image` whose filename matches `name` exactly, or raise an error if not found.
+
+<ParamField path="name" type="str" required>
+  Exact filename as stored in the database.
+</ParamField>
+
+### `read_all_images()`
+
+Return a list of all `Image` objects in the database.
+
+### `read_two_view_geometry(image_id1, image_id2)`
+
+Return the `TwoViewGeometry` for the given image pair.
+
+## Write methods
+
+### `write_camera(camera, use_camera_id=False)`
+
+Insert a `Camera` into the database.
+
+<ParamField path="camera" type="pycolmap.Camera" required>
+  Camera to insert. The database assigns a new ID unless `use_camera_id` is `True`.
+</ParamField>
+
+<ParamField path="use_camera_id" type="bool" default="False">
+  When `True`, use the `camera_id` already set on the camera object.
+</ParamField>
+
+### `write_image(image, use_image_id=False)`
+
+Insert an `Image` into the database.
+
+<ParamField path="image" type="pycolmap.Image" required>
+  Image to insert.
+</ParamField>
+
+<ParamField path="use_image_id" type="bool" default="False">
+  When `True`, use the `image_id` already set on the image object.
+</ParamField>
+
+## Pair ID helpers
+
+### `image_pair_to_pair_id(image_id1, image_id2)`
+
+Return the scalar pair ID encoding for the given image pair.
+
+### `pair_id_to_image_pair(pair_id)`
+
+Decode a scalar pair ID back to `(image_id1, image_id2)`.
+
+## DatabaseTransaction
+
+`pycolmap.DatabaseTransaction` wraps a block of database writes in a single SQLite transaction, which is significantly faster than auto-committing each write individually.
+
+```python
+db = pycolmap.Database("output/database.db")
+
+with pycolmap.DatabaseTransaction(db):
+    for cam in cameras:
+        db.write_camera(cam)
+    for img in images:
+        db.write_image(img)
+```
+
+<Note>
+  Wrapping bulk inserts in a `DatabaseTransaction` can improve write throughput by an order of magnitude compared to individual auto-committed operations.
+</Note>
+
+<ParamField path="database" type="pycolmap.Database" required>
+  The open database to wrap.
+</ParamField>
+
+## Examples
+
+```python
+import pycolmap
+
+db = pycolmap.Database("output/database.db")
+
+# Inspect counts
+print(db.num_cameras, db.num_images)
+print(db.num_keypoints, db.num_matches)
+
+# Read all images
+images = db.read_all_images()
+for img in images:
+    print(img.image_id, img.name)
+
+# Read a single camera
+cam = db.read_camera(1)
+print(cam.model, cam.width, cam.height)
+
+# Write new entries efficiently
+cam = pycolmap.Camera.create(
+    camera_id=0,
+    model="SIMPLE_RADIAL",
+    focal_length=1200.0,
+    width=1920,
+    height=1080,
+)
+image = pycolmap.Image(name="new_frame.jpg", camera_id=0)
+
+with pycolmap.DatabaseTransaction(db):
+    db.write_camera(cam)
+    db.write_image(image)
+
+db.close()
+```

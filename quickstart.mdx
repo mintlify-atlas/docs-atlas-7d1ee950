@@ -1,80 +1,198 @@
 ---
 title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+description: "Run your first sparse and dense 3D reconstruction with PyCOLMAP."
 ---
 
-## Get started in three steps
+This guide walks through a complete reconstruction from a folder of images to a sparse point cloud, then an optional dense point cloud. By the end you will have called the full PyCOLMAP pipeline end to end.
 
-Get your documentation site running locally and make your first customization.
+## Prerequisites
 
-### Step 1: Set up your local environment
+- PyCOLMAP installed — see [Installation](/installation)
+- A directory of overlapping images of a scene (JPEG or PNG)
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+<Tip>
+  No images on hand? The full example at the bottom of this page downloads the Fountain dataset automatically.
+</Tip>
 
-### Step 2: Deploy your changes
+## Step-by-step reconstruction
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+<Steps>
+  <Step title="Set up paths">
+    Define the output directory, image directory, and database path before running any pipeline step.
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+    ```python
+    import pathlib
+    import pycolmap
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+    output_path = pathlib.Path("output/")
+    image_dir   = pathlib.Path("images/")
+    database_path = output_path / "database.db"
 
-### Step 3: Go live
+    output_path.mkdir(exist_ok=True)
+    ```
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+    All pipeline functions write their results to `output_path`. The SQLite database at `database_path` accumulates features and matches across steps.
+  </Step>
+
+  <Step title="Extract features">
+    Detect and describe SIFT keypoints in every image and store them in the database.
+
+    ```python
+    pycolmap.extract_features(database_path, image_dir)
+    ```
+
+    <Note>
+      You can pass a configuration dict as the `sift_options` keyword argument to override defaults — for example, to change the number of keypoints:
+
+      ```python
+      pycolmap.extract_features(
+          database_path,
+          image_dir,
+          sift_options={"max_num_features": 8192},
+      )
+      ```
+
+      Any key not provided is kept at its default value.
+    </Note>
+  </Step>
+
+  <Step title="Match features">
+    Compare all image pairs and find corresponding keypoints. Exhaustive matching checks every pair, which is appropriate for small to medium datasets.
+
+    ```python
+    pycolmap.match_exhaustive(database_path)
+    ```
+
+    For large datasets, consider sequential or vocabulary-tree matching. See [Feature matching](/pipeline/feature-matching) for alternatives.
+  </Step>
+
+  <Step title="Run incremental mapping">
+    Register images one at a time and triangulate 3D points to build a sparse reconstruction.
+
+    ```python
+    maps = pycolmap.incremental_mapping(database_path, image_dir, output_path)
+    ```
+
+    `incremental_mapping` returns a dict of `Reconstruction` objects. Multiple reconstructions are returned when the dataset contains disconnected components.
+  </Step>
+
+  <Step title="Write the reconstruction">
+    Save the largest reconstruction to disk in COLMAP's binary format.
+
+    ```python
+    maps[0].write(output_path)
+    ```
+
+    This writes `cameras.bin`, `images.bin`, and `points3D.bin` to `output_path`. You can also call `maps[0].write_text(output_path)` to write the text format.
+  </Step>
+
+  <Step title="(Optional) Dense reconstruction">
+    Dense reconstruction requires COLMAP compiled with CUDA support and a GPU. It produces a dense point cloud from the sparse model.
+
+    <Warning>
+      `patch_match_stereo` requires CUDA. Running it without a CUDA-enabled COLMAP build will raise an error. See [CUDA support](/guides/cuda-support) for instructions on building with CUDA.
+    </Warning>
+
+    ```python
+    mvs_path = output_path / "mvs"
+
+    # Undistort images and prepare the MVS workspace
+    pycolmap.undistort_images(mvs_path, output_path, image_dir)
+
+    # Run patch-match stereo to estimate depth maps (requires CUDA)
+    pycolmap.patch_match_stereo(mvs_path)
+
+    # Fuse depth maps into a single dense point cloud
+    pycolmap.stereo_fusion(mvs_path / "dense.ply", mvs_path)
+    ```
+
+    The fused point cloud is saved as `mvs/dense.ply`.
+  </Step>
+</Steps>
+
+## Complete example with dataset download
+
+The following script downloads the Fountain dataset from ETH Zurich and runs the full sparse reconstruction pipeline.
+
+```python example.py
+import shutil
+import urllib.request
+import zipfile
+from pathlib import Path
+
+import pycolmap
+from pycolmap import logging
+
+def run():
+    output_path = Path("example/")
+    image_path = output_path / "Fountain/images"
+    database_path = output_path / "database.db"
+    sfm_path = output_path / "sfm"
+
+    output_path.mkdir(exist_ok=True)
+    logging.set_log_destination(logging.INFO, output_path / "INFO.log.")
+
+    data_url = (
+        "https://cvg-data.inf.ethz.ch/local-feature-evaluation-schoenberger2017"
+        "/Strecha-Fountain.zip"
+    )
+    if not image_path.exists():
+        logging.info("Downloading the data.")
+        zip_path = output_path / "data.zip"
+        urllib.request.urlretrieve(data_url, zip_path)
+        with zipfile.ZipFile(zip_path, "r") as fid:
+            fid.extractall(output_path)
+
+    if database_path.exists():
+        database_path.unlink()
+    pycolmap.extract_features(database_path, image_path)
+    pycolmap.match_exhaustive(database_path)
+
+    num_images = pycolmap.Database(database_path).num_images
+    logging.info(f"Database contains {num_images} images.")
+
+    if sfm_path.exists():
+        shutil.rmtree(sfm_path)
+    sfm_path.mkdir(exist_ok=True)
+    recs = pycolmap.incremental_mapping(database_path, image_path, sfm_path)
+    for idx, rec in recs.items():
+        logging.info(f"#{idx} {rec.summary()}")
+
+if __name__ == "__main__":
+    run()
+```
+
+## Configuring pipeline steps
+
+Every pipeline function accepts option dicts that are recursively merged into the built-in defaults. You only need to specify the keys you want to override:
+
+```python
+# Override specific matcher options
+pycolmap.match_exhaustive(
+    database_path,
+    sift_options={"max_ratio": 0.8},
+)
+
+# Override incremental mapping options
+pycolmap.incremental_mapping(
+    database_path,
+    image_dir,
+    output_path,
+    options={"min_num_matches": 20},
+)
+```
+
+<Tip>
+  To see all available option keys and their defaults, call `help()` on the relevant options class — for example, `help(pycolmap.SiftExtractionOptions)`.
+</Tip>
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
-
-<CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>
+<Columns cols={2}>
+  <Card title="Pipeline overview" icon="diagram-project" href="/pipeline/overview">
+    Deep dive into each reconstruction stage and its configuration options.
+  </Card>
+  <Card title="Scene objects" icon="layer-group" href="/scene/reconstruction">
+    Learn how to inspect and manipulate the returned Reconstruction object.
+  </Card>
+</Columns>

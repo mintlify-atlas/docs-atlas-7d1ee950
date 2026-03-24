@@ -1,0 +1,140 @@
+---
+title: "Essential matrix estimation"
+description: "Estimate the essential matrix and recover relative pose between two calibrated cameras using LORANSAC and the 5-point algorithm."
+---
+
+The essential matrix encodes the epipolar geometry between two calibrated cameras. Given pixel correspondences in both images and the intrinsic parameters of each camera, `pycolmap.essential_matrix_estimation` estimates E and decomposes it into a relative rotation and translation.
+
+## `pycolmap.essential_matrix_estimation`
+
+```python
+result = pycolmap.essential_matrix_estimation(
+    points2D1,                         # Nx2 float array — pixel coordinates in image 1
+    points2D2,                         # Nx2 float array — pixel coordinates in image 2
+    camera1,                           # pycolmap.Camera for image 1
+    camera2,                           # pycolmap.Camera for image 2
+    estimation_options = pycolmap.RANSACOptions(),
+)
+```
+
+Internally, the function:
+1. Unprojects pixel coordinates to normalized camera coordinates using each camera's intrinsics.
+2. Converts `max_error` from pixels to normalized units by averaging `max_error / mean_focal_length` for the two cameras.
+3. Runs LORANSAC with the **5-point algorithm** (Nister) to estimate E.
+4. Decomposes E into the four candidate relative poses and selects the one with the most points in front of both cameras.
+
+## Parameters
+
+<ParamField path="points2D1" type="numpy.ndarray" required>
+  Nx2 array of pixel coordinates in image 1. Must correspond row-by-row with `points2D2`.
+</ParamField>
+
+<ParamField path="points2D2" type="numpy.ndarray" required>
+  Nx2 array of pixel coordinates in image 2.
+</ParamField>
+
+<ParamField path="camera1" type="pycolmap.Camera" required>
+  Camera model for image 1. Used to convert pixels to normalized coordinates.
+</ParamField>
+
+<ParamField path="camera2" type="pycolmap.Camera" required>
+  Camera model for image 2.
+</ParamField>
+
+<ParamField path="estimation_options" type="pycolmap.RANSACOptions">
+  RANSAC parameters. `max_error` is interpreted as a **pixel** threshold and is converted to normalized coordinates automatically. See [RANSACOptions](/estimators/overview#ransacoptions) for all fields and defaults.
+</ParamField>
+
+## Return value
+
+Returns a `dict` on success, or `None` if RANSAC fails.
+
+<ResponseField name="E" type="numpy.ndarray">
+  3×3 essential matrix.
+</ResponseField>
+
+<ResponseField name="cam2_from_cam1" type="pycolmap.Rigid3d">
+  Relative pose of camera 2 expressed in the coordinate frame of camera 1. Rotation and translation are recovered by cheirality check on the inlier points.
+</ResponseField>
+
+<ResponseField name="num_inliers" type="int">
+  Number of correspondences classified as inliers.
+</ResponseField>
+
+<ResponseField name="inliers" type="numpy.ndarray">
+  Boolean array of length N. `inliers[i]` is `True` if correspondence `i` is an inlier.
+</ResponseField>
+
+## Algorithm details
+
+<AccordionGroup>
+  <Accordion title="LORANSAC">
+    LORANSAC (Locally Optimized RANSAC) extends standard RANSAC with a local optimization step: after finding a model supported by a minimal sample, it refines the model using all inliers before the next iteration. This yields significantly more accurate results when the outlier ratio is moderate. PyCOLMAP uses `LORANSAC<EssentialMatrixFivePointEstimator, EssentialMatrixFivePointEstimator>` — the same estimator is used for both the minimal and non-minimal fitting steps.
+  </Accordion>
+  <Accordion title="Pixel to normalized-coordinate error conversion">
+    The essential matrix is defined in normalized (camera) coordinates, but users specify `max_error` in pixels for convenience. The conversion is:
+
+    ```
+    max_error_normalized = 0.5 * (max_error_px / f1 + max_error_px / f2)
+    ```
+
+    where `f1` and `f2` are the mean focal lengths of each camera. This symmetric averaging keeps the threshold consistent across cameras with different focal lengths.
+  </Accordion>
+  <Accordion title="Pose recovery">
+    The essential matrix has four candidate decompositions into rotation and translation (up to scale). The cheirality check selects the decomposition that places the maximum number of triangulated points in front of both cameras.
+  </Accordion>
+</AccordionGroup>
+
+## Examples
+
+<CodeGroup>
+
+```python Minimal
+import numpy as np
+import pycolmap
+
+camera1 = pycolmap.Camera(
+    model="SIMPLE_PINHOLE",
+    width=1920, height=1080,
+    params=[800.0, 960.0, 540.0],
+)
+camera2 = pycolmap.Camera(
+    model="SIMPLE_PINHOLE",
+    width=1920, height=1080,
+    params=[800.0, 960.0, 540.0],
+)
+
+points1 = np.array([[u1, v1], [u2, v2], ...])  # Nx2
+points2 = np.array([[u1, v1], [u2, v2], ...])  # Nx2
+
+result = pycolmap.essential_matrix_estimation(points1, points2, camera1, camera2)
+if result is not None:
+    E              = result["E"]               # 3x3 numpy array
+    cam2_from_cam1 = result["cam2_from_cam1"]  # pycolmap.Rigid3d
+    print(f"Inliers: {result['num_inliers']} / {len(points1)}")
+```
+
+```python Custom threshold
+import pycolmap
+
+result = pycolmap.essential_matrix_estimation(
+    points1, points2, camera1, camera2,
+    estimation_options={"max_error": 2.0, "min_num_trials": 2000},
+)
+```
+
+```python Filter inliers
+import pycolmap
+
+result = pycolmap.essential_matrix_estimation(points1, points2, camera1, camera2)
+if result is not None:
+    inlier_mask = result["inliers"]  # boolean numpy array
+    inlier_pts1 = points1[inlier_mask]
+    inlier_pts2 = points2[inlier_mask]
+```
+
+</CodeGroup>
+
+<Note>
+  The returned `cam2_from_cam1` translation is only recovered **up to scale** (the essential matrix does not encode absolute metric distance). To obtain metric scale you need additional information such as known 3D structure or IMU data.
+</Note>

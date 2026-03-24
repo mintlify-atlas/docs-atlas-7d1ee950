@@ -1,0 +1,185 @@
+---
+title: "Sift"
+description: "SIFT feature extractor that returns keypoints and 128-dimensional descriptors for a single grayscale image."
+---
+
+## Class signature
+
+```python
+pycolmap.Sift(
+    options=pycolmap.SiftExtractionOptions(),
+    device=pycolmap.Device.AUTO,
+)
+```
+
+`Sift` wraps COLMAP's internal SIFT extractor. It accepts a single grayscale image and returns keypoints and descriptors.
+
+<Note>
+  For batch extraction across many images and database storage, use [`pycolmap.extract_features`](/api/extract-features) instead.
+</Note>
+
+## Constructor
+
+<ParamField path="options" type="pycolmap.SiftExtractionOptions" default="SiftExtractionOptions()">
+  SIFT extraction configuration. See [SiftExtractionOptions](#siftextractionoptions) below.
+</ParamField>
+
+<ParamField path="device" type="pycolmap.Device" default="Device.AUTO">
+  Compute device.
+
+  - `Device.AUTO` — use GPU if available, otherwise CPU.
+  - `Device.CUDA` — require GPU (CUDA). Raises if unavailable.
+  - `Device.CPU` — force CPU extraction.
+</ParamField>
+
+## Properties
+
+<ResponseField name="options" type="pycolmap.SiftExtractionOptions">
+  Read-only view of the options used to construct this extractor.
+</ResponseField>
+
+<ResponseField name="device" type="pycolmap.Device">
+  Read-only resolved device (`Device.CUDA` or `Device.CPU`).
+</ResponseField>
+
+## Methods
+
+### `extract(image)`
+
+Run SIFT extraction on a single grayscale image.
+
+<ParamField path="image" type="numpy.ndarray (H, W) uint8 or float32" required>
+  Grayscale image array. Must have shape `(H, W)` — no channel dimension. Dimensions must not exceed `options.max_image_size`.
+
+  - `uint8` — pixel values in [0, 255].
+  - `float32` — pixel values in [0.0, 1.0]; converted to `uint8` internally.
+</ParamField>
+
+**Returns** a tuple `(keypoints, descriptors)`:
+
+<ResponseField name="keypoints" type="numpy.ndarray (N, 4) float32">
+  One row per detected keypoint: `[x, y, scale, orientation]`.
+
+  - `x`, `y` — pixel position.
+  - `scale` — keypoint scale (computed from the octave and sub-level).
+  - `orientation` — dominant gradient orientation in radians.
+</ResponseField>
+
+<ResponseField name="descriptors" type="numpy.ndarray (N, 128) float32">
+  L1-root or L2 normalized 128-dimensional SIFT descriptor for each keypoint. Values are divided by 512 before normalization so they lie in [0, 1].
+</ResponseField>
+
+## SiftExtractionOptions
+
+Configure with `pycolmap.SiftExtractionOptions()` or pass a plain `dict`.
+
+```python
+opts = pycolmap.SiftExtractionOptions()
+opts.max_num_features = 4096
+opts.peak_threshold = 0.008
+```
+
+<ParamField path="num_threads" type="int">
+  Number of CPU threads to use for extraction.
+</ParamField>
+
+<ParamField path="gpu_index" type="str">
+  GPU index or comma-separated list for multi-GPU extraction, e.g. `"0"` or `"0,1,2"`.
+</ParamField>
+
+<ParamField path="max_image_size" type="int" default="7000">
+  Maximum image dimension in pixels. Images larger than this value along either axis are rejected.
+</ParamField>
+
+<ParamField path="max_num_features" type="int">
+  Maximum number of features to keep per image. The largest-scale detections are retained when the limit is reached.
+</ParamField>
+
+<ParamField path="first_octave" type="int" default="0">
+  First octave in the scale-space pyramid. Set to `-1` to upsample the image before extraction, enabling detection of very fine features.
+</ParamField>
+
+<ParamField path="num_octaves" type="int">
+  Total number of octaves in the pyramid.
+</ParamField>
+
+<ParamField path="octave_resolution" type="int">
+  Number of scale levels per octave.
+</ParamField>
+
+<ParamField path="peak_threshold" type="float" default="0.01">
+  Minimum contrast threshold for a keypoint to be accepted. Lower values detect more (and weaker) keypoints.
+</ParamField>
+
+<ParamField path="edge_threshold" type="float">
+  Threshold for rejecting keypoints on edges (based on the ratio of principal curvatures).
+</ParamField>
+
+<ParamField path="estimate_affine_shape" type="bool" default="False">
+  When `True`, estimates the full affine shape (oriented ellipse) of each keypoint instead of the standard oriented disk.
+</ParamField>
+
+<ParamField path="max_num_orientations" type="int">
+  Maximum number of dominant orientations assigned per keypoint when `estimate_affine_shape` is `False`.
+</ParamField>
+
+<ParamField path="upright" type="bool" default="False">
+  When `True`, fixes the orientation of all keypoints to 0. Use when images are known to be upright and rotation invariance is not needed.
+</ParamField>
+
+<ParamField path="darkness_adaptivity" type="bool" default="False">
+  Adapt peak detection to the brightness of the image. GPU only.
+</ParamField>
+
+<ParamField path="domain_size_pooling" type="bool" default="False">
+  Enable DSP-SIFT: pool descriptors over multiple scales for improved retrieval. See Dong & Soatto, CVPR 2015.
+</ParamField>
+
+<ParamField path="dsp_min_scale" type="float">
+  Minimum scale factor used for DSP pooling.
+</ParamField>
+
+<ParamField path="dsp_max_scale" type="float">
+  Maximum scale factor used for DSP pooling.
+</ParamField>
+
+<ParamField path="dsp_num_scales" type="int">
+  Number of scale levels sampled in the DSP range.
+</ParamField>
+
+<ParamField path="normalization" type="pycolmap.Normalization" default="Normalization.L1_ROOT">
+  Descriptor normalization strategy.
+
+  - `L1_ROOT` — L1-normalize then apply element-wise square root. Generally outperforms L2 for image retrieval (Arandjelovic & Zisserman, CVPR 2012).
+  - `L2` — Standard L2 normalization.
+</ParamField>
+
+## Examples
+
+```python
+import pycolmap
+import numpy as np
+from PIL import Image
+
+# Load a grayscale image
+img = np.array(Image.open("frame.jpg").convert("L"), dtype=np.uint8)
+
+# Default CPU extraction
+sift = pycolmap.Sift(device=pycolmap.Device.CPU)
+keypoints, descriptors = sift.extract(img)
+
+print(keypoints.shape)    # (N, 4)  — x, y, scale, orientation
+print(descriptors.shape)  # (N, 128)
+
+# Custom options
+opts = pycolmap.SiftExtractionOptions()
+opts.max_num_features = 2048
+opts.peak_threshold = 0.005
+
+sift = pycolmap.Sift(options=opts, device=pycolmap.Device.CPU)
+keypoints, descriptors = sift.extract(img)
+```
+
+<Warning>
+  Each `Sift` instance holds GPU resources when `device=Device.CUDA`. Create one instance and reuse it across multiple `extract` calls rather than constructing a new instance per image.
+</Warning>

@@ -1,0 +1,242 @@
+---
+title: "Incremental mapping"
+description: "Run incremental Structure-from-Motion with pycolmap.incremental_mapping to recover 3D points and camera poses."
+---
+
+Incremental mapping is the Structure-from-Motion (SfM) step. It registers images one at a time into a growing reconstruction, triangulates new 3D points after each registration, and periodically refines all camera poses and point positions with bundle adjustment.
+
+The function returns a dict of `Reconstruction` objects. Multiple reconstructions are produced when the scene contains disconnected components.
+
+## incremental_mapping
+
+```python
+maps = pycolmap.incremental_mapping(
+    database_path,                          # Path to the .db file from extraction/matching
+    image_path,                             # Directory of input images
+    output_path,                            # Directory to write reconstruction(s)
+    options                    = pycolmap.IncrementalPipelineOptions(),
+    input_path                 = "",         # Optional: continue from an existing reconstruction
+    initial_image_pair_callback = None,      # Called after the first pair is registered
+    next_image_callback         = None,      # Called after each subsequent image is registered
+)
+# Returns: dict[int, pycolmap.Reconstruction]
+```
+
+### Parameters
+
+<ParamField path="database_path" type="str or Path" required>
+  Path to the SQLite database containing extracted features and matches.
+</ParamField>
+
+<ParamField path="image_path" type="str or Path" required>
+  Directory containing the input images referenced in the database.
+</ParamField>
+
+<ParamField path="output_path" type="str or Path" required>
+  Directory where reconstructions are written. Created automatically if it does not exist. Each sub-reconstruction is saved in a numbered subdirectory (`0/`, `1/`, …).
+</ParamField>
+
+<ParamField path="options" type="pycolmap.IncrementalPipelineOptions">
+  Mapping configuration. See [IncrementalPipelineOptions](#incrementalpipelineoptions) below.
+</ParamField>
+
+<ParamField path="input_path" type="str or Path" default=''>
+  Optional path to an existing reconstruction to continue from. When provided, the reconstruction is loaded and extended rather than started from scratch.
+</ParamField>
+
+<ParamField path="initial_image_pair_callback" type="Callable[[], None] or None" default="None">
+  Python callable invoked once after the initial image pair is successfully registered. Useful for progress reporting.
+</ParamField>
+
+<ParamField path="next_image_callback" type="Callable[[], None] or None" default="None">
+  Python callable invoked after each subsequent image is registered. The mapper checks for `KeyboardInterrupt` inside this callback, so the reconstruction can be interrupted cleanly.
+</ParamField>
+
+### Return value
+
+A `dict[int, pycolmap.Reconstruction]` mapping an integer index to each completed sub-reconstruction. The reconstructions are also written to `output_path` automatically.
+
+```python
+maps = pycolmap.incremental_mapping(database_path, image_dir, output_path)
+
+# Inspect the largest reconstruction
+print(maps[0].summary())
+
+# Save to disk
+maps[0].write(output_path)
+```
+
+## triangulate_points
+
+Triangulates 3D points into an existing reconstruction where camera poses are already known. Useful when you have a partial reconstruction and want to densify the point cloud without re-running full SfM.
+
+```python
+reconstruction = pycolmap.triangulate_points(
+    reconstruction,      # pycolmap.Reconstruction with known camera poses
+    database_path,       # Path to the .db file
+    image_path,          # Directory of input images
+    output_path,         # Directory to write the updated reconstruction
+    clear_points    = True,
+    options         = pycolmap.IncrementalPipelineOptions(),
+    refine_intrinsics = False,
+)
+# Returns: the updated pycolmap.Reconstruction
+```
+
+<ParamField path="reconstruction" type="pycolmap.Reconstruction" required>
+  An existing reconstruction with registered images and known camera intrinsics/extrinsics.
+</ParamField>
+
+<ParamField path="clear_points" type="bool" default="True">
+  If `True`, all existing 3D points are removed before re-triangulation.
+</ParamField>
+
+<ParamField path="refine_intrinsics" type="bool" default="False">
+  If `True`, camera intrinsics are refined during triangulation bundle adjustment.
+</ParamField>
+
+## IncrementalPipelineOptions
+
+Pass as the `options` keyword argument, either as an options object or a plain dict.
+
+```python
+pycolmap.incremental_mapping(
+    database_path, image_dir, output_path,
+    options={"min_num_matches": 20, "multiple_models": False},
+)
+```
+
+### Reconstruction control
+
+| Option | Type | Description |
+|---|---|---|
+| `min_num_matches` | `int` | Minimum number of inlier matches required to consider an image pair. |
+| `ignore_watermarks` | `bool` | Ignore inlier matches from watermark image pairs. |
+| `multiple_models` | `bool` | Allow reconstructing multiple disconnected sub-models. |
+| `max_num_models` | `int` | Maximum number of sub-models to reconstruct. |
+| `max_model_overlap` | `int` | Maximum images shared between sub-models before stopping a reconstruction. |
+| `min_model_size` | `int` | Minimum registered images in a sub-model; smaller sub-models are discarded (except the first). |
+| `init_image_id1` | `int` | Image ID of the first initialization image. |
+| `init_image_id2` | `int` | Image ID of the second initialization image. Determined automatically if not set. |
+| `init_num_trials` | `int` | Number of attempts to find a valid initialization pair. |
+| `extract_colors` | `bool` | Extract and store colors for reconstructed 3D points. |
+| `num_threads` | `int` | Number of threads to use during reconstruction. |
+| `image_names` | `list[str]` | Restrict reconstruction to these image names. All images are used if empty. |
+| `fix_existing_images` | `bool` | When resuming from `input_path`, fix existing image poses and only register new images. |
+
+### Intrinsics filtering
+
+| Option | Type | Description |
+|---|---|---|
+| `min_focal_length_ratio` | `float` | Minimum ratio of estimated to prior focal length. Images outside the range are ignored. |
+| `max_focal_length_ratio` | `float` | Maximum ratio of estimated to prior focal length. |
+| `max_extra_param` | `float` | Maximum allowed value of extra distortion parameters. |
+
+### Bundle adjustment
+
+| Option | Type | Description |
+|---|---|---|
+| `ba_refine_focal_length` | `bool` | Optimize focal length during bundle adjustment. |
+| `ba_refine_principal_point` | `bool` | Optimize principal point during bundle adjustment. |
+| `ba_refine_extra_params` | `bool` | Optimize extra distortion parameters during bundle adjustment. |
+| `ba_local_num_images` | `int` | Number of images to include in local bundle adjustment windows. |
+| `ba_local_max_num_iterations` | `int` | Maximum iterations for local bundle adjustment. |
+| `ba_local_function_tolerance` | `float` | Ceres solver function tolerance for local bundle adjustment. |
+| `ba_global_images_ratio` | `float` | Trigger global BA when the number of registered images grows by this ratio. |
+| `ba_global_points_ratio` | `float` | Trigger global BA when the number of 3D points grows by this ratio. |
+| `ba_global_images_freq` | `int` | Trigger global BA every N registered images. |
+| `ba_global_points_freq` | `int` | Trigger global BA every N new 3D points. |
+| `ba_global_max_num_iterations` | `int` | Maximum iterations for global bundle adjustment. |
+| `ba_global_function_tolerance` | `float` | Ceres solver function tolerance for global bundle adjustment. |
+| `ba_local_max_refinements` | `int` | Maximum iterative refinements per local BA call. |
+| `ba_local_max_refinement_change` | `float` | Stop local BA refinements when cost change falls below this threshold. |
+| `ba_global_max_refinements` | `int` | Maximum iterative refinements per global BA call. |
+| `ba_global_max_refinement_change` | `float` | Stop global BA refinements when cost change falls below this threshold. |
+| `ba_min_num_residuals_for_multi_threading` | `int` | Minimum residuals required to use multi-threaded bundle adjustment. |
+
+### Snapshots
+
+| Option | Type | Description |
+|---|---|---|
+| `snapshot_path` | `str` | Directory to save reconstruction snapshots during mapping. |
+| `snapshot_images_freq` | `int` | Save a snapshot every N registered images. |
+
+## Progress callbacks
+
+The `initial_image_pair_callback` and `next_image_callback` parameters accept zero-argument Python callables. They execute on the main thread between image registrations, so you can safely update a progress bar or check external conditions.
+
+The mapper checks for `KeyboardInterrupt` inside the `next_image_callback` scope, allowing you to interrupt a long reconstruction cleanly with `Ctrl+C`.
+
+```python
+import enlighten
+import pycolmap
+
+num_images = pycolmap.Database(database_path).num_images
+
+with enlighten.Manager() as manager:
+    with manager.counter(total=num_images, desc="Images registered:") as pbar:
+        pbar.update(0, force=True)
+        recs = pycolmap.incremental_mapping(
+            database_path,
+            image_path,
+            output_path,
+            initial_image_pair_callback=lambda: pbar.update(2),
+            next_image_callback=lambda: pbar.update(1),
+        )
+```
+
+## Examples
+
+<CodeGroup>
+
+```python Basic
+import pycolmap
+from pathlib import Path
+
+database_path = Path("output/database.db")
+image_dir     = Path("images/")
+output_path   = Path("output/sparse")
+
+maps = pycolmap.incremental_mapping(database_path, image_dir, output_path)
+print(maps[0].summary())
+maps[0].write(output_path)
+```
+
+```python With options
+maps = pycolmap.incremental_mapping(
+    database_path,
+    image_dir,
+    output_path,
+    options={
+        "min_num_matches": 20,
+        "multiple_models": False,
+        "ba_refine_focal_length": True,
+    },
+)
+```
+
+```python Triangulate into existing reconstruction
+import pycolmap
+
+rec = pycolmap.Reconstruction("sparse/0")
+rec = pycolmap.triangulate_points(
+    rec,
+    database_path="output/database.db",
+    image_path="images/",
+    output_path="sparse_dense/",
+    clear_points=True,
+)
+print(rec.summary())
+```
+
+```python Resume from partial reconstruction
+maps = pycolmap.incremental_mapping(
+    database_path,
+    image_dir,
+    output_path,
+    input_path="output/sparse/0",
+    options={"fix_existing_images": True},
+)
+```
+
+</CodeGroup>

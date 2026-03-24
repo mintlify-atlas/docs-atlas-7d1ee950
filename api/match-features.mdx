@@ -1,0 +1,412 @@
+---
+title: "Feature matching"
+description: "Match SIFT descriptors between image pairs using exhaustive, sequential, spatial, or vocabulary-tree strategies."
+---
+
+Feature matching compares SIFT descriptors between image pairs and runs geometric verification to produce two-view geometry estimates. All matching functions read from and write to an existing COLMAP SQLite database.
+
+<Warning>
+  The database must already exist and contain extracted features before running any matching function. Run `pycolmap.extract_features` first.
+</Warning>
+
+## Shared parameters
+
+All matching functions accept a common set of parameters in addition to their strategy-specific options.
+
+### SiftMatchingOptions
+
+<ParamField path="num_threads" type="int">
+  Number of CPU threads to use during matching.
+</ParamField>
+
+<ParamField path="gpu_index" type="str">
+  Index of the GPU to use. Separate multiple GPU indices with commas, e.g. `"0,1,2,3"` for multi-GPU matching.
+</ParamField>
+
+<ParamField path="max_ratio" type="float">
+  Maximum distance ratio between the first and second best match (Lowe's ratio test). Matches with a ratio above this threshold are rejected.
+</ParamField>
+
+<ParamField path="max_distance" type="float">
+  Maximum descriptor distance to the best match. Matches farther than this are rejected.
+</ParamField>
+
+<ParamField path="cross_check" type="bool">
+  When `True`, only accepts a match if image A matches image B and image B also matches image A.
+</ParamField>
+
+<ParamField path="max_num_matches" type="int">
+  Maximum number of matches to retain per image pair.
+</ParamField>
+
+<ParamField path="guided_matching" type="bool">
+  When `True`, uses the estimated two-view geometry to guide a second round of matching after initial geometric verification.
+</ParamField>
+
+---
+
+## match_exhaustive
+
+Matches every image against every other image. Suitable for small to medium image collections.
+
+```python
+pycolmap.match_exhaustive(
+    database_path,
+    sift_options         = pycolmap.SiftMatchingOptions(),
+    matching_options     = pycolmap.ExhaustiveMatchingOptions(),
+    verification_options = pycolmap.TwoViewGeometryOptions(),
+    device               = pycolmap.Device.AUTO,
+)
+```
+
+<ParamField path="database_path" type="str or Path" required>
+  Path to an existing COLMAP SQLite database containing extracted features.
+</ParamField>
+
+<ParamField path="sift_options" type="pycolmap.SiftMatchingOptions">
+  SIFT matching configuration. See [SiftMatchingOptions](#shared-parameters) above.
+</ParamField>
+
+<ParamField path="matching_options" type="pycolmap.ExhaustiveMatchingOptions">
+  Exhaustive matching configuration.
+
+  <Expandable title="ExhaustiveMatchingOptions fields">
+    <ParamField path="block_size" type="int">
+      Number of images to process per matching block. Controls memory usage vs. parallelism. The exhaustive matcher tiles the image set into blocks of this size and matches all pairs within each block.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="verification_options" type="pycolmap.TwoViewGeometryOptions">
+  Two-view geometry estimation configuration used during geometric verification.
+</ParamField>
+
+<ParamField path="device" type="pycolmap.Device" default="Device.AUTO">
+  Compute device. `AUTO` selects GPU when available; `CPU` forces CPU-only matching.
+</ParamField>
+
+### Return value
+
+<ResponseField name="return" type="None">
+  Returns `None`. Match results are written directly to `database_path`.
+</ResponseField>
+
+---
+
+## match_sequential
+
+Matches each image against its neighbors in sequence (by filename order). Suitable for video or ordered image sequences.
+
+```python
+pycolmap.match_sequential(
+    database_path,
+    sift_options         = pycolmap.SiftMatchingOptions(),
+    matching_options     = pycolmap.SequentialMatchingOptions(),
+    verification_options = pycolmap.TwoViewGeometryOptions(),
+    device               = pycolmap.Device.AUTO,
+)
+```
+
+<ParamField path="database_path" type="str or Path" required>
+  Path to an existing COLMAP SQLite database containing extracted features.
+</ParamField>
+
+<ParamField path="sift_options" type="pycolmap.SiftMatchingOptions">
+  SIFT matching configuration. See [SiftMatchingOptions](#shared-parameters) above.
+</ParamField>
+
+<ParamField path="matching_options" type="pycolmap.SequentialMatchingOptions">
+  Sequential matching configuration.
+
+  <Expandable title="SequentialMatchingOptions fields">
+    <ParamField path="overlap" type="int">
+      Number of adjacent images to match for each query image. An overlap of `k` matches each image against the `k` images immediately before and after it in sequence.
+    </ParamField>
+
+    <ParamField path="quadratic_overlap" type="bool">
+      When `True`, also matches images against quadratically spaced neighbors (e.g., image `i` against images `i±1`, `i±2`, `i±4`, `i±8`, …). Helps capture large jumps in sequences.
+    </ParamField>
+
+    <ParamField path="loop_detection" type="bool">
+      When `True`, enables vocabulary-tree-based loop closure detection. Invoked every `loop_detection_period` images.
+    </ParamField>
+
+    <ParamField path="loop_detection_num_images" type="int">
+      Number of candidate images to retrieve per query during loop detection. Should be significantly larger than `overlap`.
+    </ParamField>
+
+    <ParamField path="loop_detection_num_nearest_neighbors" type="int">
+      Number of nearest neighbors to retrieve per query feature during vocabulary tree retrieval.
+    </ParamField>
+
+    <ParamField path="loop_detection_num_checks" type="int">
+      Number of nearest-neighbor checks during vocabulary tree retrieval.
+    </ParamField>
+
+    <ParamField path="loop_detection_num_images_after_verification" type="int">
+      Number of images to return after spatial verification. Set to `0` to disable spatial verification.
+    </ParamField>
+
+    <ParamField path="loop_detection_max_num_features" type="int">
+      Maximum number of features indexed per image for loop detection. Only the largest-scale features are indexed when the limit is exceeded.
+    </ParamField>
+
+    <ParamField path="vocab_tree_path" type="str">
+      Path to the vocabulary tree file. Required when `loop_detection` is `True`.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="verification_options" type="pycolmap.TwoViewGeometryOptions">
+  Two-view geometry estimation configuration used during geometric verification.
+</ParamField>
+
+<ParamField path="device" type="pycolmap.Device" default="Device.AUTO">
+  Compute device. `AUTO` selects GPU when available.
+</ParamField>
+
+### Return value
+
+<ResponseField name="return" type="None">
+  Returns `None`. Match results are written directly to `database_path`.
+</ResponseField>
+
+---
+
+## match_vocabtree
+
+Retrieves candidate image pairs using a vocabulary tree index, then matches only those pairs. Scales to large collections where exhaustive matching is prohibitive.
+
+```python
+pycolmap.match_vocabtree(
+    database_path,
+    sift_options         = pycolmap.SiftMatchingOptions(),
+    matching_options     = pycolmap.VocabTreeMatchingOptions(),
+    verification_options = pycolmap.TwoViewGeometryOptions(),
+    device               = pycolmap.Device.AUTO,
+)
+```
+
+<ParamField path="database_path" type="str or Path" required>
+  Path to an existing COLMAP SQLite database containing extracted features.
+</ParamField>
+
+<ParamField path="sift_options" type="pycolmap.SiftMatchingOptions">
+  SIFT matching configuration. See [SiftMatchingOptions](#shared-parameters) above.
+</ParamField>
+
+<ParamField path="matching_options" type="pycolmap.VocabTreeMatchingOptions">
+  Vocabulary tree matching configuration.
+
+  <Expandable title="VocabTreeMatchingOptions fields">
+    <ParamField path="vocab_tree_path" type="str" required>
+      Path to the vocabulary tree file. The file must exist; the function raises an error if it is missing.
+    </ParamField>
+
+    <ParamField path="num_images" type="int">
+      Number of candidate images to retrieve per query image.
+    </ParamField>
+
+    <ParamField path="num_nearest_neighbors" type="int">
+      Number of nearest neighbors to retrieve per query feature during retrieval.
+    </ParamField>
+
+    <ParamField path="num_checks" type="int">
+      Number of nearest-neighbor checks during retrieval.
+    </ParamField>
+
+    <ParamField path="num_images_after_verification" type="int">
+      Number of images to return after spatial verification. Set to `0` to disable spatial verification.
+    </ParamField>
+
+    <ParamField path="max_num_features" type="int">
+      Maximum number of features to index per image. Only the largest-scale features are used when the limit is exceeded.
+    </ParamField>
+
+    <ParamField path="match_list_path" type="str">
+      Optional path to a text file listing specific image name pairs to match instead of using retrieval.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="verification_options" type="pycolmap.TwoViewGeometryOptions">
+  Two-view geometry estimation configuration used during geometric verification.
+</ParamField>
+
+<ParamField path="device" type="pycolmap.Device" default="Device.AUTO">
+  Compute device. `AUTO` selects GPU when available.
+</ParamField>
+
+### Return value
+
+<ResponseField name="return" type="None">
+  Returns `None`. Match results are written directly to `database_path`.
+</ResponseField>
+
+<Note>
+  `vocab_tree_path` is required. Calling `match_vocabtree` without it raises a `RuntimeError`. Vocabulary tree files can be downloaded from the COLMAP project.
+</Note>
+
+---
+
+## match_spatial
+
+Matches image pairs whose GPS or 3D location priors are spatially close. Requires location metadata stored in the database.
+
+```python
+pycolmap.match_spatial(
+    database_path,
+    sift_options         = pycolmap.SiftMatchingOptions(),
+    matching_options     = pycolmap.SpatialMatchingOptions(),
+    verification_options = pycolmap.TwoViewGeometryOptions(),
+    device               = pycolmap.Device.AUTO,
+)
+```
+
+<ParamField path="database_path" type="str or Path" required>
+  Path to an existing COLMAP SQLite database containing extracted features and location priors.
+</ParamField>
+
+<ParamField path="sift_options" type="pycolmap.SiftMatchingOptions">
+  SIFT matching configuration. See [SiftMatchingOptions](#shared-parameters) above.
+</ParamField>
+
+<ParamField path="matching_options" type="pycolmap.SpatialMatchingOptions">
+  Spatial matching configuration.
+
+  <Expandable title="SpatialMatchingOptions fields">
+    <ParamField path="is_gps" type="bool">
+      When `True`, interprets location priors as GPS coordinates (longitude and latitude in degrees).
+    </ParamField>
+
+    <ParamField path="ignore_z" type="bool">
+      When `True`, ignores the Z (altitude) component of the location prior and matches purely in 2D.
+    </ParamField>
+
+    <ParamField path="max_num_neighbors" type="int">
+      Maximum number of nearest spatial neighbors to match against each query image.
+    </ParamField>
+
+    <ParamField path="max_distance" type="float">
+      Maximum distance in meters between query and neighbor for a pair to be matched.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="verification_options" type="pycolmap.TwoViewGeometryOptions">
+  Two-view geometry estimation configuration used during geometric verification.
+</ParamField>
+
+<ParamField path="device" type="pycolmap.Device" default="Device.AUTO">
+  Compute device. `AUTO` selects GPU when available.
+</ParamField>
+
+### Return value
+
+<ResponseField name="return" type="None">
+  Returns `None`. Match results are written directly to `database_path`.
+</ResponseField>
+
+---
+
+## verify_matches
+
+Runs geometric verification on a pre-defined list of image pairs. Use this when you already know which pairs to verify (e.g., from a custom retrieval pipeline).
+
+```python
+pycolmap.verify_matches(
+    database_path,
+    pairs_path,
+    options = pycolmap.TwoViewGeometryOptions(),
+)
+```
+
+<ParamField path="database_path" type="str or Path" required>
+  Path to an existing COLMAP SQLite database containing extracted features.
+</ParamField>
+
+<ParamField path="pairs_path" type="str or Path" required>
+  Path to a text file listing image name pairs to verify, one pair per line, with the two names separated by whitespace.
+</ParamField>
+
+<ParamField path="options" type="pycolmap.TwoViewGeometryOptions">
+  Two-view geometry estimation configuration.
+</ParamField>
+
+### Return value
+
+<ResponseField name="return" type="None">
+  Returns `None`. Verification results are written directly to `database_path`.
+</ResponseField>
+
+<Note>
+  `verify_matches` always runs on CPU regardless of available hardware.
+</Note>
+
+---
+
+## Examples
+
+<CodeGroup>
+
+```python Exhaustive matching (small dataset)
+import pycolmap
+from pathlib import Path
+
+database_path = Path("output/database.db")
+
+pycolmap.match_exhaustive(database_path)
+```
+
+```python Sequential matching (video sequence)
+import pycolmap
+from pathlib import Path
+
+database_path = Path("output/database.db")
+
+opts = pycolmap.SequentialMatchingOptions()
+opts.overlap = 10
+opts.quadratic_overlap = True
+
+pycolmap.match_sequential(database_path, matching_options=opts)
+```
+
+```python Vocabulary tree matching (large dataset)
+import pycolmap
+from pathlib import Path
+
+database_path = Path("output/database.db")
+vocab_tree = Path("vocab_tree_flickr100K_words32K.bin")
+
+opts = pycolmap.VocabTreeMatchingOptions()
+opts.vocab_tree_path = str(vocab_tree)
+opts.num_images = 50
+
+pycolmap.match_vocabtree(database_path, matching_options=opts)
+```
+
+```python Spatial matching (geotagged images)
+import pycolmap
+from pathlib import Path
+
+database_path = Path("output/database.db")
+
+opts = pycolmap.SpatialMatchingOptions()
+opts.is_gps = True
+opts.max_num_neighbors = 20
+opts.max_distance = 100.0  # meters
+
+pycolmap.match_spatial(database_path, matching_options=opts)
+```
+
+```python Verify custom pairs
+import pycolmap
+from pathlib import Path
+
+database_path = Path("output/database.db")
+pairs_file = Path("pairs.txt")  # each line: "image1.jpg image2.jpg"
+
+pycolmap.verify_matches(database_path, pairs_file)
+```
+
+</CodeGroup>

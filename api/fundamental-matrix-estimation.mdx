@@ -1,0 +1,138 @@
+---
+title: "fundamental_matrix_estimation"
+description: "Estimate the fundamental matrix between two uncalibrated views from 2D point correspondences using LORANSAC and the 7-point algorithm."
+---
+
+## Function signature
+
+```python
+pycolmap.fundamental_matrix_estimation(
+    points2D1,
+    points2D2,
+    estimation_options = pycolmap.RANSACOptions(),
+)
+```
+
+<Note>
+  Returns `None` if estimation fails. Always check the return value before accessing its fields.
+</Note>
+
+## Parameters
+
+<ParamField path="points2D1" type="numpy.ndarray" required>
+  Nx2 array of 2D pixel coordinates in image 1. Each row is `[x, y]`.
+</ParamField>
+
+<ParamField path="points2D2" type="numpy.ndarray" required>
+  Nx2 array of 2D pixel coordinates in image 2. Each row is `[x, y]`. Must have the same number of rows as `points2D1`.
+</ParamField>
+
+<ParamField path="estimation_options" type="pycolmap.RANSACOptions">
+  RANSAC configuration. See [RANSACOptions](#ransacoptions) below.
+</ParamField>
+
+## Return value
+
+Returns a `dict` on success, or `None` on failure.
+
+<ResponseField name="F" type="numpy.ndarray">
+  3×3 fundamental matrix such that `x2.T @ F @ x1 = 0` for a correspondence `(x1, x2)`.
+</ResponseField>
+
+<ResponseField name="num_inliers" type="int">
+  Number of inlier correspondences after RANSAC.
+</ResponseField>
+
+<ResponseField name="inliers" type="list[bool]">
+  Boolean mask of length N. `inliers[i]` is `True` when correspondence `i` is an inlier.
+</ResponseField>
+
+## RANSACOptions
+
+Construct with `pycolmap.RANSACOptions()` and set fields, or pass a `dict`.
+
+```python
+options = pycolmap.RANSACOptions()
+options.max_error = 1.0
+options.confidence = 0.9999
+
+# Equivalent dict form
+pycolmap.fundamental_matrix_estimation(
+    points2D1, points2D2,
+    estimation_options={"max_error": 1.0},
+)
+```
+
+<ParamField path="max_error" type="float" default="4.0">
+  Maximum Sampson error in pixels for an inlier correspondence.
+</ParamField>
+
+<ParamField path="min_inlier_ratio" type="float" default="0.01">
+  Minimum fraction of correspondences that must be inliers for the model to be accepted.
+</ParamField>
+
+<ParamField path="confidence" type="float" default="0.9999">
+  Desired probability of finding the correct model. Controls the number of RANSAC trials.
+</ParamField>
+
+<ParamField path="dyn_num_trials_multiplier" type="float">
+  Multiplier on the dynamically computed number of trials.
+</ParamField>
+
+<ParamField path="min_num_trials" type="int" default="1000">
+  Minimum number of RANSAC iterations regardless of the estimated number of trials.
+</ParamField>
+
+<ParamField path="max_num_trials" type="int" default="100000">
+  Maximum number of RANSAC iterations.
+</ParamField>
+
+## Examples
+
+<CodeGroup>
+
+```python Basic usage
+import numpy as np
+import pycolmap
+
+# Matched keypoint coordinates from two images (no camera calibration required)
+points2D1 = np.load("keypoints1.npy")  # (N, 2)
+points2D2 = np.load("keypoints2.npy")  # (N, 2)
+
+result = pycolmap.fundamental_matrix_estimation(points2D1, points2D2)
+
+if result is not None:
+    print("Fundamental matrix F:\n", result["F"])
+    print("Inliers:", result["num_inliers"], "/", len(points2D1))
+else:
+    print("Estimation failed")
+```
+
+```python With tight inlier threshold
+import numpy as np
+import pycolmap
+
+points2D1 = np.load("keypoints1.npy")
+points2D2 = np.load("keypoints2.npy")
+
+opts = pycolmap.RANSACOptions()
+opts.max_error = 1.0       # tight threshold for high-quality matches
+opts.min_num_trials = 5000
+opts.confidence = 0.99999
+
+result = pycolmap.fundamental_matrix_estimation(
+    points2D1,
+    points2D2,
+    estimation_options=opts,
+)
+
+if result is not None:
+    F = result["F"]
+    inlier_mask = np.array(result["inliers"])
+    inlier_pts1 = points2D1[inlier_mask]
+    inlier_pts2 = points2D2[inlier_mask]
+    print(f"{inlier_mask.sum()} / {len(inlier_mask)} inliers")
+    print("F:\n", F)
+```
+
+</CodeGroup>

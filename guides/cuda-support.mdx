@@ -1,0 +1,153 @@
+---
+title: "CUDA support"
+description: "Enable GPU-accelerated feature extraction, feature matching, and dense reconstruction by building PyCOLMAP against a CUDA-enabled COLMAP installation."
+---
+
+PyCOLMAP can use the GPU for several compute-intensive pipeline stages, but only when it is built against a COLMAP installation that was compiled with CUDA support. Pre-built PyPI wheels are CPU-only.
+
+## What requires CUDA
+
+| Feature | CPU fallback | Notes |
+|---|---|---|
+| Feature extraction (`extract_features`, `Sift`) | Yes | GPU is significantly faster on large datasets |
+| Feature matching (`match_exhaustive`, etc.) | Yes | GPU matching is faster for large image sets |
+| Dense reconstruction (`patch_match_stereo`) | No | Requires CUDA; raises an error without it |
+
+<Warning>
+  `pycolmap.patch_match_stereo` has no CPU implementation. Calling it without a CUDA-enabled build will raise a runtime error.
+</Warning>
+
+## Checking CUDA availability
+
+After importing PyCOLMAP, check whether the current build was compiled with CUDA support:
+
+```python
+import pycolmap
+
+print(pycolmap.has_cuda)  # True if CUDA is available, False otherwise
+```
+
+`pycolmap.has_cuda` returns `True` only when both conditions are met:
+
+1. PyCOLMAP was built against a COLMAP installation compiled with CUDA.
+2. A compatible GPU is present and accessible at runtime.
+
+## Device enum
+
+All functions that support GPU acceleration accept a `device` argument using the `pycolmap.Device` enum.
+
+| Value | Behavior |
+|---|---|
+| `pycolmap.Device.auto` | Use GPU if CUDA is available; fall back to CPU automatically |
+| `pycolmap.Device.cuda` | Use GPU; raises an error if CUDA is not available |
+| `pycolmap.Device.cpu` | Always use CPU |
+
+`Device.auto` is the default for all pipeline functions and the `Sift` constructor.
+
+## Specifying the device
+
+### extract_features
+
+```python
+import pycolmap
+
+# Automatic device selection (default)
+pycolmap.extract_features(database_path, image_dir)
+
+# Explicit GPU
+pycolmap.extract_features(
+    database_path,
+    image_dir,
+    device=pycolmap.Device.cuda,
+)
+
+# Explicit CPU
+pycolmap.extract_features(
+    database_path,
+    image_dir,
+    device=pycolmap.Device.cpu,
+)
+```
+
+### Sift constructor
+
+```python
+import pycolmap
+
+# GPU extraction
+sift = pycolmap.Sift(device=pycolmap.Device.cuda)
+
+# CPU extraction
+sift = pycolmap.Sift(device=pycolmap.Device.cpu)
+
+# Automatic (default)
+sift = pycolmap.Sift()
+
+# Inspect the device that was actually selected
+print(sift.device)  # pycolmap.Device.cpu or pycolmap.Device.cuda
+```
+
+### Multi-GPU extraction
+
+To use multiple GPUs during database extraction, set `gpu_index` in `SiftExtractionOptions`:
+
+```python
+pycolmap.extract_features(
+    database_path,
+    image_dir,
+    sift_options={"gpu_index": "0,1,2,3"},
+    device=pycolmap.Device.cuda,
+)
+```
+
+## CGAL support
+
+PyCOLMAP can also use CGAL for Delaunay triangulation during dense fusion, but only when COLMAP is compiled with CGAL support. Like CUDA, this requires a source build — CGAL is not included in the PyPI wheels.
+
+```python
+# CGAL support does not have a runtime flag in PyCOLMAP;
+# it is silently available when the underlying COLMAP was built with CGAL.
+```
+
+To enable CGAL, pass `-DCGAL_ENABLED=ON` when building COLMAP from source before installing PyCOLMAP.
+
+## PyPI wheels are CPU-only
+
+The pre-built wheels published to PyPI are built with the following flags:
+
+```bash
+-DCUDA_ENABLED=OFF
+-DCGAL_ENABLED=OFF
+```
+
+This means:
+
+- `pycolmap.has_cuda` will always be `False` with the PyPI wheel.
+- `patch_match_stereo` will raise an error.
+- Feature extraction and matching run on CPU only.
+
+To enable any of these capabilities, you must build PyCOLMAP from source. See [Building from source](/guides/building-from-source) for step-by-step instructions.
+
+## Runtime detection pattern
+
+A safe pattern for code that should work with both CPU-only and CUDA builds:
+
+```python
+import pycolmap
+
+device = pycolmap.Device.cuda if pycolmap.has_cuda else pycolmap.Device.cpu
+
+sift = pycolmap.Sift(device=device)
+keypoints, descriptors = sift.extract(image)
+```
+
+## Next steps
+
+<Columns cols={2}>
+  <Card title="Building from source" icon="hammer" href="/guides/building-from-source">
+    Build PyCOLMAP with CUDA and CGAL support enabled.
+  </Card>
+  <Card title="SIFT extraction" icon="image" href="/guides/sift-extraction">
+    Extract keypoints and descriptors from NumPy arrays.
+  </Card>
+</Columns>

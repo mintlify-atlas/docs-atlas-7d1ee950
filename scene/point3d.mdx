@@ -1,0 +1,183 @@
+---
+title: "Point3D, Point2D, and Track"
+description: "Work with pycolmap.Point3D, Point2D, and Track objects: 3D coordinates, 2D keypoints, and observation tracks."
+keywords: ["point3D", "point2D", "track", "keypoints", "triangulation", "observations"]
+---
+
+Three closely related classes represent the geometry of triangulated scene points:
+
+- `pycolmap.Point3D` — a triangulated 3D point with position, color, reprojection error, and a track.
+- `pycolmap.Track` — the set of 2D observations across images that gave rise to a 3D point.
+- `pycolmap.Point2D` — a single 2D keypoint in one image, optionally linked to a 3D point.
+
+## Point3D
+
+Every entry in `reconstruction.points3D` is a `Point3D` object.
+
+```python
+import pycolmap
+
+reconstruction = pycolmap.Reconstruction("path/to/reconstruction/dir")
+
+for point3D_id, point3D in reconstruction.points3D.items():
+    print(point3D)
+    # Point3D(xyz=[1.23, -0.45, 8.90], color=[128, 200, 100], error=0.51,
+    #         track=Track(length=4))
+```
+
+### Properties
+
+```python
+point3D.xyz    # numpy array of shape (3,) — world-space coordinates
+point3D.color  # numpy array of shape (3,) uint8 — RGB color [0–255]
+point3D.error  # float — mean reprojection error across the track
+point3D.track  # pycolmap.Track — set of (image_id, point2D_idx) observations
+```
+
+### Creating a Point3D
+
+```python
+import numpy as np
+import pycolmap
+
+track = pycolmap.Track()
+track.add_element(image_id=1, point2D_idx=42)
+track.add_element(image_id=2, point2D_idx=17)
+
+point3D = pycolmap.Point3D()
+point3D.xyz = np.array([1.0, 2.0, 3.0])
+point3D.color = np.array([200, 150, 80], dtype=np.uint8)
+point3D.error = 0.0
+point3D.track = track
+```
+
+## Track
+
+A `Track` records all 2D observations (keypoints in images) that were triangulated into a single 3D point.
+
+### Constructing a track
+
+```python
+# Empty track
+track = pycolmap.Track()
+
+# From a list of TrackElement objects
+elements = [
+    pycolmap.TrackElement(image_id=1, point2D_idx=42),
+    pycolmap.TrackElement(image_id=3, point2D_idx=7),
+]
+track = pycolmap.Track(elements)
+```
+
+### Properties and methods
+
+```python
+track.length()     # int — number of observations in this track
+track.elements     # list[TrackElement] — read/write list of all observations
+```
+
+### Adding and removing observations
+
+```python
+# Add by (image_id, point2D_idx) pair
+track.add_element(image_id=5, point2D_idx=12)
+
+# Add a TrackElement object
+el = pycolmap.TrackElement(image_id=5, point2D_idx=12)
+track.append(el)
+
+# Add multiple at once
+track.add_elements([
+    pycolmap.TrackElement(1, 10),
+    pycolmap.TrackElement(2, 20),
+])
+
+# Remove by (image_id, point2D_idx)
+track.delete_element(image_id=5, point2D_idx=12)
+
+# Remove by list index
+track.remove(0)
+```
+
+### Iterating over observations
+
+```python
+for element in point3D.track.elements:
+    print(f"image {element.image_id}, keypoint {element.point2D_idx}")
+```
+
+## TrackElement
+
+A `TrackElement` is a single (image, keypoint) observation that contributes to a 3D point.
+
+```python
+el = pycolmap.TrackElement(image_id=1, point2D_idx=42)
+el.image_id      # int — ID of the image
+el.point2D_idx   # int — index into image.points2D
+```
+
+## Point2D
+
+A `Point2D` is a detected keypoint in one image. It stores pixel coordinates and an optional link to its triangulated 3D point.
+
+```python
+import numpy as np
+import pycolmap
+
+# Create from coordinates (point3D_id defaults to invalid)
+p2d = pycolmap.Point2D(xy=np.array([320.0, 240.0]))
+
+# Create with a known 3D association
+p2d = pycolmap.Point2D(xy=np.array([320.0, 240.0]), point3D_id=1337)
+```
+
+### Properties
+
+```python
+p2d.xy           # numpy array of shape (2,) — pixel coordinates [x, y]
+p2d.point3D_id   # int — ID of the linked 3D point, or kInvalidPoint3DId if none
+p2d.has_point3D()  # bool — True if linked to a triangulated 3D point
+```
+
+## Example: traversing the full track of a 3D point
+
+```python
+import pycolmap
+
+reconstruction = pycolmap.Reconstruction("path/to/reconstruction/dir")
+
+point3D_id = next(iter(reconstruction.points3D))
+point3D = reconstruction.points3D[point3D_id]
+
+print(f"Point {point3D_id}: xyz={point3D.xyz}, error={point3D.error:.3f} px")
+print(f"Observed in {point3D.track.length()} images:")
+
+for el in point3D.track.elements:
+    image = reconstruction.images[el.image_id]
+    p2d   = image.points2D[el.point2D_idx]
+    print(f"  image={image.name}  keypoint_idx={el.point2D_idx}  xy={p2d.xy}")
+```
+
+## Example: finding all 3D points visible in one image
+
+```python
+import pycolmap
+
+reconstruction = pycolmap.Reconstruction("path/to/reconstruction/dir")
+image = reconstruction.images[1]
+
+for p2d in image.get_valid_points2D():
+    p3d = reconstruction.points3D[p2d.point3D_id]
+    print(f"2D {p2d.xy} → 3D {p3d.xyz}")
+```
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Image" icon="image" href="/scene/image">
+    Image pose, keypoints, and 2D–3D associations
+  </Card>
+  <Card title="Reconstruction" icon="layer-group" href="/scene/reconstruction">
+    The full sparse reconstruction container
+  </Card>
+</CardGroup>

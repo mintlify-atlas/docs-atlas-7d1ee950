@@ -1,0 +1,102 @@
+---
+title: "Installation"
+description: "Install PyCOLMAP via pip or build from source on Linux, macOS, and Windows."
+---
+
+## pip install
+
+The fastest way to get started is to install the pre-built wheel from PyPI:
+
+```bash
+pip install pycolmap
+```
+
+Wheels are published for Python 3.8, 3.9, 3.10, and 3.11 across all supported platforms.
+
+## Platform support
+
+| Platform | Python versions | Notes |
+|---|---|---|
+| Linux (manylinux) | 3.8, 3.9, 3.10, 3.11 | CPU only; build from source for CUDA |
+| macOS 10/11/12 Intel | 3.8, 3.9, 3.10, 3.11 | — |
+| macOS Apple Silicon | 3.8, 3.9, 3.10, 3.11 | Universal2 wheels |
+| Windows | 3.8, 3.9, 3.10, 3.11 | — |
+
+<Note>
+  Pre-built wheels do not include CUDA support. Dense reconstruction steps that require CUDA — such as `patch_match_stereo` — need a source build against a CUDA-enabled COLMAP installation.
+</Note>
+
+## Verify the installation
+
+After installing, confirm PyCOLMAP is available and check the installed version:
+
+```bash
+python -c "import pycolmap; print(pycolmap.__version__)"
+```
+
+## Building from source
+
+Building from source is required if you need CUDA support or if no pre-built wheel is available for your platform.
+
+### Version compatibility
+
+| PyCOLMAP version | COLMAP version |
+|---|---|
+| 0.4.0 | 3.8 |
+| 0.5.0 | 3.9.1 |
+| 0.6.0 | 3.9.1 |
+
+<Steps>
+  <Step title="Install COLMAP">
+    Install the correct version of COLMAP for your target PyCOLMAP version. Follow the [official COLMAP installation guide](https://colmap.github.io/install.html).
+
+    To enable CUDA support in PyCOLMAP, make sure COLMAP is compiled with CUDA.
+  </Step>
+
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/colmap/pycolmap.git
+    cd pycolmap
+    ```
+  </Step>
+
+  <Step title="Build and install">
+    <Tabs>
+      <Tab title="Linux / macOS">
+        ```bash
+        python -m pip install .
+        ```
+      </Tab>
+      <Tab title="Windows">
+        Windows builds use [vcpkg](https://vcpkg.io/) to manage C++ dependencies. Set the `VCPKG_INSTALLATION_ROOT` environment variable to your vcpkg root, then run:
+
+        ```powershell
+        py -m pip install . `
+          --cmake.define.CMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
+          --cmake.define.VCPKG_TARGET_TRIPLET="x64-windows"
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Verify the build">
+    ```bash
+    python -c "import pycolmap; print(pycolmap.__version__)"
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+  On Windows, building without the vcpkg toolchain file will fail to locate COLMAP's C++ dependencies. Ensure `VCPKG_INSTALLATION_ROOT` is set correctly before running pip.
+</Warning>
+
+## Next steps
+
+<Columns cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Run your first sparse and dense 3D reconstruction.
+  </Card>
+  <Card title="Pipeline overview" icon="diagram-project" href="/pipeline/overview">
+    Understand each stage of the reconstruction pipeline.
+  </Card>
+</Columns>

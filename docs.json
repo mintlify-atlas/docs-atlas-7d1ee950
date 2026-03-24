@@ -1,122 +1,114 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "PyCOLMAP",
+  "theme": "sequoia",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#e0c155",
+    "light": "#4a6a83",
+    "dark": "#d5d6d3"
   },
-  "favicon": "/favicon.svg",
+  "logo": {
+    "light": "https://media.brand.dev/f178c4d1-c126-4cc5-9e28-165160ef002b.svg",
+    "dark": "https://media.brand.dev/f178c4d1-c126-4cc5-9e28-165160ef002b.svg"
+  },
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/colmap/pycolmap"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/colmap/pycolmap"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Get Started",
+            "pages": ["introduction", "installation", "quickstart"]
+          },
+          {
+            "group": "Reconstruction Pipeline",
             "pages": [
-              "index",
-              "quickstart",
-              "development"
+              "pipeline/overview",
+              "pipeline/feature-extraction",
+              "pipeline/feature-matching",
+              "pipeline/incremental-mapping",
+              "pipeline/dense-reconstruction"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Scene Objects",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
+              "scene/reconstruction",
+              "scene/camera",
+              "scene/image",
+              "scene/point3d",
+              "scene/database"
             ]
           },
           {
-            "group": "Writing content",
+            "group": "Estimators",
             "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
+              "estimators/overview",
+              "estimators/absolute-pose",
+              "estimators/essential-matrix",
+              "estimators/fundamental-matrix",
+              "estimators/homography",
+              "estimators/two-view-geometry"
             ]
           },
           {
-            "group": "AI tools",
+            "group": "Guides",
             "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "guides/sift-extraction",
+              "guides/cuda-support",
+              "guides/building-from-source"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "API Reference",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "Pipeline",
             "pages": [
-              "api-reference/introduction"
+              "api/extract-features",
+              "api/match-features",
+              "api/incremental-mapping",
+              "api/dense-reconstruction"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "Estimators",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "api/absolute-pose-estimation",
+              "api/pose-refinement",
+              "api/essential-matrix-estimation",
+              "api/fundamental-matrix-estimation",
+              "api/homography-matrix-estimation",
+              "api/two-view-geometry-estimation"
+            ]
+          },
+          {
+            "group": "Classes",
+            "pages": [
+              "api/reconstruction",
+              "api/camera",
+              "api/image",
+              "api/point3d",
+              "api/database",
+              "api/sift",
+              "api/ransac-options"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

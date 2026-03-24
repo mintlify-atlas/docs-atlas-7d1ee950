@@ -1,0 +1,270 @@
+---
+title: "Absolute pose estimation"
+description: "Estimate and refine the absolute pose of a camera from 2D–3D correspondences using RANSAC and non-linear bundle adjustment."
+---
+
+Absolute pose estimation localizes a camera in a known 3D map by finding the rigid transformation (rotation + translation) that maps 3D world points to their observed 2D pixel locations. PyCOLMAP wraps two functions: one that runs RANSAC and then refines the result, and one that refines a pose you already have.
+
+## `pycolmap.absolute_pose_estimation`
+
+Estimates the absolute pose with RANSAC, then refines it with non-linear optimization.
+
+```python
+result = pycolmap.absolute_pose_estimation(
+    points2D,                       # Nx2 float array — pixel coordinates
+    points3D,                       # Nx3 float array — world coordinates
+    camera,                         # pycolmap.Camera
+    estimation_options = pycolmap.AbsolutePoseEstimationOptions(),
+    refinement_options = pycolmap.AbsolutePoseRefinementOptions(),
+    return_covariance  = False,
+)
+```
+
+### Parameters
+
+<ParamField path="points2D" type="numpy.ndarray" required>
+  Nx2 array of observed 2D pixel coordinates. Each row corresponds to the 2D observation of the 3D point at the same index in `points3D`.
+</ParamField>
+
+<ParamField path="points3D" type="numpy.ndarray" required>
+  Nx3 array of 3D world coordinates. Must have the same length as `points2D`.
+</ParamField>
+
+<ParamField path="camera" type="pycolmap.Camera" required>
+  Camera model used to convert pixel coordinates to normalized image coordinates. See [Camera argument](/estimators/overview#camera-argument).
+</ParamField>
+
+<ParamField path="estimation_options" type="pycolmap.AbsolutePoseEstimationOptions">
+  Controls RANSAC and optional focal length estimation. See [AbsolutePoseEstimationOptions](#absoluteposeestimationoptions) below.
+</ParamField>
+
+<ParamField path="refinement_options" type="pycolmap.AbsolutePoseRefinementOptions">
+  Controls the non-linear refinement step. See [AbsolutePoseRefinementOptions](#absoluteposerefinementoptions) below.
+</ParamField>
+
+<ParamField path="return_covariance" type="bool" default="False">
+  If `True`, the returned dict includes a 6×6 covariance matrix of the refined pose parameters.
+</ParamField>
+
+### Return value
+
+Returns a `dict` on success, or `None` if RANSAC fails.
+
+<ResponseField name="cam_from_world" type="pycolmap.Rigid3d">
+  The estimated camera-from-world rigid transformation (rotation + translation).
+</ResponseField>
+
+<ResponseField name="num_inliers" type="int">
+  Number of correspondences classified as inliers.
+</ResponseField>
+
+<ResponseField name="inliers" type="numpy.ndarray">
+  Boolean array of length N. `inliers[i]` is `True` if correspondence `i` is an inlier.
+</ResponseField>
+
+<ResponseField name="covariance" type="numpy.ndarray">
+  6×6 covariance matrix of the refined pose. Only present when `return_covariance=True`.
+</ResponseField>
+
+---
+
+## `pycolmap.pose_refinement`
+
+Non-linear refinement of an existing absolute pose estimate. Use this when you already have a pose (e.g. from a different estimator) and want to minimize reprojection error over the inliers.
+
+```python
+result = pycolmap.pose_refinement(
+    cam_from_world,                 # pycolmap.Rigid3d — initial pose
+    points2D,                       # Nx2 float array — pixel coordinates
+    points3D,                       # Nx3 float array — world coordinates
+    inlier_mask,                    # N-element bool array
+    camera,                         # pycolmap.Camera
+    refinement_options = pycolmap.AbsolutePoseRefinementOptions(),
+)
+```
+
+### Parameters
+
+<ParamField path="cam_from_world" type="pycolmap.Rigid3d" required>
+  Initial camera-from-world transformation to refine.
+</ParamField>
+
+<ParamField path="points2D" type="numpy.ndarray" required>
+  Nx2 array of 2D pixel coordinates.
+</ParamField>
+
+<ParamField path="points3D" type="numpy.ndarray" required>
+  Nx3 array of 3D world coordinates.
+</ParamField>
+
+<ParamField path="inlier_mask" type="numpy.ndarray" required>
+  Boolean array of length N. Only correspondences where `inlier_mask[i]` is `True` are used in the refinement.
+</ParamField>
+
+<ParamField path="camera" type="pycolmap.Camera" required>
+  Camera model. The camera parameters may be updated in-place if `refine_focal_length` or `refine_extra_params` is enabled.
+</ParamField>
+
+<ParamField path="refinement_options" type="pycolmap.AbsolutePoseRefinementOptions">
+  Controls solver tolerances and which camera parameters to refine.
+</ParamField>
+
+### Return value
+
+Returns a `dict` on success, or `None` if the refinement fails to converge.
+
+<ResponseField name="cam_from_world" type="pycolmap.Rigid3d">
+  The refined camera-from-world transformation.
+</ResponseField>
+
+---
+
+## AbsolutePoseEstimationOptions
+
+Pass as `estimation_options`, either as an object or a dict.
+
+```python
+opts = pycolmap.AbsolutePoseEstimationOptions()
+print(opts)  # show all fields and defaults
+```
+
+<ParamField path="ransac" type="pycolmap.RANSACOptions">
+  RANSAC parameters. The default `max_error` for this estimator is **12.0 pixels** (overriding the global default of 4.0). See [RANSACOptions](/estimators/overview#ransacoptions).
+</ParamField>
+
+<ParamField path="estimate_focal_length" type="bool" default="False">
+  If `True`, the focal length of the camera is treated as unknown and estimated jointly with the pose.
+</ParamField>
+
+<ParamField path="num_focal_length_samples" type="int">
+  Number of focal lengths sampled when `estimate_focal_length=True`.
+</ParamField>
+
+<ParamField path="min_focal_length_ratio" type="float">
+  Lower bound on the focal length as a ratio of the image diagonal.
+</ParamField>
+
+<ParamField path="max_focal_length_ratio" type="float">
+  Upper bound on the focal length as a ratio of the image diagonal.
+</ParamField>
+
+## AbsolutePoseRefinementOptions
+
+Pass as `refinement_options`, either as an object or a dict.
+
+<ParamField path="gradient_tolerance" type="float">
+  Solver convergence threshold on the gradient norm.
+</ParamField>
+
+<ParamField path="max_num_iterations" type="int">
+  Maximum number of Levenberg–Marquardt iterations.
+</ParamField>
+
+<ParamField path="loss_function_scale" type="float">
+  Scale of the Cauchy loss function used in the refinement. Controls outlier robustness.
+</ParamField>
+
+<ParamField path="refine_focal_length" type="bool" default="False">
+  If `True`, the focal length is included as a free variable during refinement.
+</ParamField>
+
+<ParamField path="refine_extra_params" type="bool" default="False">
+  If `True`, distortion parameters are included as free variables during refinement.
+</ParamField>
+
+<ParamField path="print_summary" type="bool" default="False">
+  If `True`, print a Ceres solver summary after refinement.
+</ParamField>
+
+## Rig absolute pose estimation
+
+For multi-camera rigs, use `pycolmap.rig_absolute_pose_estimation`. This estimates the pose of the entire rig from observations across all cameras.
+
+```python
+result = pycolmap.rig_absolute_pose_estimation(
+    points2D,           # Nx2 float array — pixel coordinates (all cameras)
+    points3D,           # Nx3 float array — world coordinates
+    cameras,            # list of pycolmap.Camera
+    camera_idxs,        # list of int — which camera each observation belongs to
+    cams_from_rig,      # list of pycolmap.Rigid3d — each camera's pose relative to the rig
+    estimation_options = pycolmap.RANSACOptions(),
+    refinement_options = pycolmap.AbsolutePoseRefinementOptions(),
+    return_covariance  = False,
+)
+# Returns dict with keys: rig_from_world, num_inliers, inliers
+# (and covariance if return_covariance=True)
+```
+
+## Examples
+
+<CodeGroup>
+
+```python Minimal
+import numpy as np
+import pycolmap
+
+camera = pycolmap.Camera(
+    model="SIMPLE_PINHOLE",
+    width=1920,
+    height=1080,
+    params=[800.0, 960.0, 540.0],  # f, cx, cy
+)
+
+# 2D observations and their corresponding 3D points
+points2D = np.array([[u1, v1], [u2, v2], ...])  # Nx2
+points3D = np.array([[x1, y1, z1], ...])         # Nx3
+
+result = pycolmap.absolute_pose_estimation(points2D, points3D, camera)
+if result is not None:
+    print(result["cam_from_world"])        # pycolmap.Rigid3d
+    print(f"Inliers: {result['num_inliers']}")
+```
+
+```python Custom RANSAC threshold
+import pycolmap
+
+result = pycolmap.absolute_pose_estimation(
+    points2D, points3D, camera,
+    estimation_options=dict(ransac=dict(max_error=8.0)),
+)
+```
+
+```python Estimate focal length
+import pycolmap
+
+result = pycolmap.absolute_pose_estimation(
+    points2D, points3D, camera,
+    estimation_options=dict(estimate_focal_length=True),
+    refinement_options=dict(refine_focal_length=True),
+)
+```
+
+```python Refinement only
+import pycolmap
+
+# Assuming `initial_pose` and `inliers` come from a prior step
+result = pycolmap.pose_refinement(
+    initial_pose,
+    points2D,
+    points3D,
+    inliers,
+    camera,
+    refinement_options=dict(refine_focal_length=True),
+)
+if result is not None:
+    refined_pose = result["cam_from_world"]
+```
+
+```python Return covariance
+import pycolmap
+
+result = pycolmap.absolute_pose_estimation(
+    points2D, points3D, camera,
+    return_covariance=True,
+)
+if result is not None:
+    cov = result["covariance"]  # 6x6 numpy array
+    print("Pose covariance:\n", cov)
+```
+
+</CodeGroup>

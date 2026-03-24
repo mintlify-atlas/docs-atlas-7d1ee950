@@ -1,0 +1,196 @@
+---
+title: "Feature matching"
+description: "Match SIFT features across image pairs using exhaustive, sequential, vocabulary tree, spatial, or transitive strategies."
+---
+
+After feature extraction, PyCOLMAP matches keypoints across image pairs and runs geometric verification to compute fundamental matrices and inlier sets. Results are written back to the same database.
+
+Choose a matching strategy based on your dataset size and structure:
+
+| Strategy | Best for |
+|---|---|
+| `match_exhaustive` | Small datasets (up to ~500 images) |
+| `match_sequential` | Video or ordered image sequences |
+| `match_vocabtree` | Large unordered collections |
+| `match_spatial` | Images with GPS or prior location data |
+| `verify_matches` | Re-run geometric verification on a known pair list |
+
+## Exhaustive matching
+
+Matches every image pair. Quadratic in the number of images — use only for small datasets.
+
+```python
+pycolmap.match_exhaustive(
+    database_path,
+    sift_options         = pycolmap.SiftMatchingOptions(),
+    matching_options     = pycolmap.ExhaustiveMatchingOptions(),
+    verification_options = pycolmap.TwoViewGeometryOptions(),
+    device               = pycolmap.Device.AUTO,
+)
+```
+
+### ExhaustiveMatchingOptions
+
+| Option | Type | Description |
+|---|---|---|
+| `block_size` | `int` | Number of images to process per block. Limits memory use for large datasets. |
+
+## Sequential matching
+
+Matches each image against its neighbors in sequence. Suited for video or image sequences captured with ordered filenames. Optionally runs loop detection using a vocabulary tree.
+
+```python
+pycolmap.match_sequential(
+    database_path,
+    sift_options         = pycolmap.SiftMatchingOptions(),
+    matching_options     = pycolmap.SequentialMatchingOptions(),
+    verification_options = pycolmap.TwoViewGeometryOptions(),
+    device               = pycolmap.Device.AUTO,
+)
+```
+
+### SequentialMatchingOptions
+
+| Option | Type | Description |
+|---|---|---|
+| `overlap` | `int` | Number of adjacent image pairs to match. |
+| `quadratic_overlap` | `bool` | Also match images at quadratic offsets (1, 2, 4, 8, …) to capture long-range overlaps. |
+| `loop_detection` | `bool` | Enable loop closure detection via a vocabulary tree. |
+| `loop_detection_num_images` | `int` | Number of candidate images to retrieve per query during loop detection. Should exceed `overlap` significantly. |
+| `loop_detection_num_nearest_neighbors` | `int` | Nearest neighbors to retrieve per query feature during loop detection. |
+| `loop_detection_num_checks` | `int` | Nearest-neighbor checks per query during retrieval. |
+| `loop_detection_num_images_after_verification` | `int` | Images to retain after spatial verification. Set to `0` to disable spatial verification. |
+| `loop_detection_max_num_features` | `int` | Maximum features to index per image. Larger-scale features are kept when truncated. |
+| `vocab_tree_path` | `str` | Path to the vocabulary tree file (required when `loop_detection=True`). |
+
+## Vocabulary tree matching
+
+Retrieves candidate image pairs using an inverted index over a pre-trained vocabulary tree. Scales to millions of images.
+
+```python
+pycolmap.match_vocabtree(
+    database_path,
+    sift_options         = pycolmap.SiftMatchingOptions(),
+    matching_options     = pycolmap.VocabTreeMatchingOptions(),
+    verification_options = pycolmap.TwoViewGeometryOptions(),
+    device               = pycolmap.Device.AUTO,
+)
+```
+
+<Note>
+  `vocab_tree_path` is required for vocabulary tree matching. Download a pre-trained tree from the [COLMAP project page](https://colmap.github.io/faq.html).
+</Note>
+
+### VocabTreeMatchingOptions
+
+| Option | Type | Description |
+|---|---|---|
+| `num_images` | `int` | Number of candidate images to retrieve per query. |
+| `num_nearest_neighbors` | `int` | Nearest neighbors to retrieve per query feature. |
+| `num_checks` | `int` | Nearest-neighbor checks per query during retrieval. |
+| `num_images_after_verification` | `int` | Images retained after spatial verification. `0` disables spatial verification. |
+| `max_num_features` | `int` | Maximum features to index per image. |
+| `vocab_tree_path` | `str` | **Required.** Path to the vocabulary tree file. |
+| `match_list_path` | `str` | Optional path to a file listing specific image name pairs to match. |
+
+## Spatial matching
+
+Matches images that are geographically close, using GPS coordinates or other 3D location priors stored in the database.
+
+```python
+pycolmap.match_spatial(
+    database_path,
+    sift_options         = pycolmap.SiftMatchingOptions(),
+    matching_options     = pycolmap.SpatialMatchingOptions(),
+    verification_options = pycolmap.TwoViewGeometryOptions(),
+    device               = pycolmap.Device.AUTO,
+)
+```
+
+### SpatialMatchingOptions
+
+| Option | Type | Description |
+|---|---|---|
+| `is_gps` | `bool` | Whether location priors are GPS coordinates (longitude/latitude in degrees). |
+| `ignore_z` | `bool` | Ignore the Z-component of the location prior. |
+| `max_num_neighbors` | `int` | Maximum number of nearest-neighbor images to match per query. |
+| `max_distance` | `float` | Maximum distance (meters) between a query and a candidate image. |
+
+## Verifying a custom pair list
+
+If you have a pre-computed list of image pairs, you can run only geometric verification without re-running descriptor matching:
+
+```python
+pycolmap.verify_matches(
+    database_path,
+    pairs_path,           # path to a text file with one "image1 image2" pair per line
+    options = pycolmap.TwoViewGeometryOptions(),
+)
+```
+
+## SiftMatchingOptions
+
+Shared by all matchers via the `sift_options` parameter.
+
+| Option | Type | Description |
+|---|---|---|
+| `num_threads` | `int` | Number of CPU threads for matching. |
+| `gpu_index` | `str` | GPU index to use. Separate multiple indices with commas, e.g. `"0,1,2,3"`. |
+| `max_ratio` | `float` | Lowe's ratio test threshold: maximum distance ratio between the first and second best match. |
+| `max_distance` | `float` | Maximum descriptor distance to the best match. |
+| `cross_check` | `bool` | Require symmetric matches (each match must be nearest neighbor in both directions). |
+| `max_num_matches` | `int` | Maximum number of matches per image pair. |
+| `guided_matching` | `bool` | Re-run matching guided by the estimated geometry after verification succeeds. |
+
+## Examples
+
+<CodeGroup>
+
+```python Exhaustive (small dataset)
+import pycolmap
+from pathlib import Path
+
+database_path = Path("output/database.db")
+
+pycolmap.match_exhaustive(database_path)
+```
+
+```python Sequential (video)
+pycolmap.match_sequential(
+    database_path,
+    matching_options={
+        "overlap": 10,
+        "quadratic_overlap": True,
+    },
+)
+```
+
+```python Vocabulary tree (large dataset)
+pycolmap.match_vocabtree(
+    database_path,
+    matching_options={
+        "vocab_tree_path": "/path/to/vocab_tree_flickr100K_words32K.bin",
+        "num_images": 100,
+    },
+)
+```
+
+```python Spatial (GPS prior)
+pycolmap.match_spatial(
+    database_path,
+    matching_options={
+        "is_gps": True,
+        "max_num_neighbors": 25,
+        "max_distance": 100.0,
+    },
+)
+```
+
+```python Custom pair list
+pycolmap.verify_matches(
+    database_path,
+    pairs_path="pairs.txt",
+)
+```
+
+</CodeGroup>

@@ -1,0 +1,316 @@
+---
+title: "Two-view geometry estimation"
+description: "Estimate the two-view geometry between a pair of images, automatically selecting between essential matrix, fundamental matrix, homography, and degenerate configurations."
+---
+
+## estimate_calibrated_two_view_geometry
+
+Estimates the two-view geometry for a calibrated image pair. COLMAP jointly fits an essential matrix and homography, selects the best model based on inlier counts, and optionally recovers the relative pose.
+
+```python
+pycolmap.estimate_calibrated_two_view_geometry(
+    camera1,
+    points1,
+    camera2,
+    points2,
+    matches = None,
+    options = pycolmap.TwoViewGeometryOptions(),
+)
+```
+
+### Parameters
+
+<ParamField path="camera1" type="pycolmap.Camera" required>
+  Camera model for image 1.
+</ParamField>
+
+<ParamField path="points1" type="numpy.ndarray" required>
+  Nx2 array of 2D pixel coordinates in image 1.
+</ParamField>
+
+<ParamField path="camera2" type="pycolmap.Camera" required>
+  Camera model for image 2.
+</ParamField>
+
+<ParamField path="points2" type="numpy.ndarray" required>
+  Nx2 array of 2D pixel coordinates in image 2.
+</ParamField>
+
+<ParamField path="matches" type="numpy.ndarray" default="None">
+  Mx2 integer array where each row `[i, j]` specifies that `points1[i]` corresponds to `points2[j]`. When `None`, correspondences are assumed to be in order: `points1[i]` matches `points2[i]`, and `points1` and `points2` must have the same length.
+</ParamField>
+
+<ParamField path="options" type="pycolmap.TwoViewGeometryOptions">
+  Geometry estimation configuration. See [TwoViewGeometryOptions](#twoviewgeometryoptions) below.
+</ParamField>
+
+### Return value
+
+Returns a `pycolmap.TwoViewGeometry` object.
+
+<ResponseField name="config" type="pycolmap.TwoViewGeometryConfiguration">
+  Enum value describing the estimated scene configuration. See [TwoViewGeometryConfiguration](#twoviewgeometryconfiguration) below.
+</ResponseField>
+
+<ResponseField name="E" type="numpy.ndarray">
+  3×3 essential matrix. Populated when the configuration is `CALIBRATED`.
+</ResponseField>
+
+<ResponseField name="F" type="numpy.ndarray">
+  3×3 fundamental matrix. Populated when the configuration is `UNCALIBRATED`.
+</ResponseField>
+
+<ResponseField name="H" type="numpy.ndarray">
+  3×3 homography matrix. Populated when the configuration is `PLANAR`, `PANORAMIC`, or `PLANAR_OR_PANORAMIC`.
+</ResponseField>
+
+<ResponseField name="cam2_from_cam1" type="pycolmap.Rigid3d">
+  Relative pose of camera 2 with respect to camera 1. Only populated when `options.compute_relative_pose` is `True`.
+</ResponseField>
+
+<ResponseField name="inlier_matches" type="numpy.ndarray">
+  Mx2 integer array of inlier match pairs. Each row is `[i, j]` with `points1[i]` corresponding to `points2[j]`.
+</ResponseField>
+
+<ResponseField name="tri_angle" type="float">
+  Median triangulation angle in degrees across all inlier matches.
+</ResponseField>
+
+---
+
+## estimate_two_view_geometry
+
+Estimates the two-view geometry for an uncalibrated image pair. Behaves like `estimate_calibrated_two_view_geometry` but does not assume known intrinsics.
+
+```python
+pycolmap.estimate_two_view_geometry(
+    camera1,
+    points1,
+    camera2,
+    points2,
+    matches = None,
+    options = pycolmap.TwoViewGeometryOptions(),
+)
+```
+
+Parameters and return type are identical to `estimate_calibrated_two_view_geometry`. The returned `TwoViewGeometry` object has the same structure.
+
+---
+
+## estimate_two_view_geometry_pose
+
+Recovers the relative pose from an already-estimated `TwoViewGeometry` object. Call this after `estimate_calibrated_two_view_geometry` when you need the pose but did not set `options.compute_relative_pose` upfront.
+
+```python
+pycolmap.estimate_two_view_geometry_pose(
+    camera1,
+    points1,
+    camera2,
+    points2,
+    geometry,
+)
+```
+
+<ParamField path="camera1" type="pycolmap.Camera" required>
+  Camera model for image 1.
+</ParamField>
+
+<ParamField path="points1" type="numpy.ndarray" required>
+  Nx2 array of 2D pixel coordinates in image 1.
+</ParamField>
+
+<ParamField path="camera2" type="pycolmap.Camera" required>
+  Camera model for image 2.
+</ParamField>
+
+<ParamField path="points2" type="numpy.ndarray" required>
+  Nx2 array of 2D pixel coordinates in image 2.
+</ParamField>
+
+<ParamField path="geometry" type="pycolmap.TwoViewGeometry" required>
+  An existing `TwoViewGeometry` object. The `cam2_from_cam1` field is populated in-place.
+</ParamField>
+
+---
+
+## TwoViewGeometryOptions
+
+Construct with `pycolmap.TwoViewGeometryOptions()` and set fields, or pass a `dict`.
+
+```python
+options = pycolmap.TwoViewGeometryOptions()
+options.compute_relative_pose = True
+options.ransac.max_error = 4.0
+```
+
+<ParamField path="min_num_inliers" type="int">
+  Minimum number of inlier matches required to accept any geometric model.
+</ParamField>
+
+<ParamField path="min_E_F_inlier_ratio" type="float">
+  Minimum ratio of inliers needed to prefer the essential or fundamental matrix model over no model.
+</ParamField>
+
+<ParamField path="max_H_inlier_ratio" type="float">
+  Maximum fraction of inliers consistent with the homography. Above this threshold, the scene is classified as planar or panoramic.
+</ParamField>
+
+<ParamField path="watermark_min_inlier_ratio" type="float">
+  Minimum inlier ratio for a model to be considered a watermark.
+</ParamField>
+
+<ParamField path="watermark_border_size" type="float">
+  Relative border size (fraction of image dimensions) used for watermark detection.
+</ParamField>
+
+<ParamField path="detect_watermark" type="bool">
+  When `True`, attempts to detect and handle watermark configurations separately.
+</ParamField>
+
+<ParamField path="multiple_ignore_watermark" type="bool">
+  When `True` and `multiple_models` is enabled, ignores watermark pairs during multi-model estimation.
+</ParamField>
+
+<ParamField path="force_H_use" type="bool">
+  When `True`, forces use of the homography model regardless of inlier ratios.
+</ParamField>
+
+<ParamField path="compute_relative_pose" type="bool">
+  When `True`, recovers the relative camera pose and populates `cam2_from_cam1` in the returned geometry.
+</ParamField>
+
+<ParamField path="multiple_models" type="bool">
+  When `True`, estimates multiple geometric models and selects the best one.
+</ParamField>
+
+<ParamField path="ransac" type="pycolmap.RANSACOptions">
+  RANSAC configuration shared by the internal essential matrix and homography estimators. See [RANSACOptions](/api/ransac-options) for all fields.
+</ParamField>
+
+## TwoViewGeometryConfiguration
+
+Enum `pycolmap.TwoViewGeometryConfiguration` describing the estimated scene type.
+
+| Value | Description |
+|---|---|
+| `UNDEFINED` | No model was estimated (e.g., too few matches). |
+| `DEGENERATE` | Degenerate configuration; no valid model found. |
+| `CALIBRATED` | Calibrated (essential matrix) model. The cameras have known intrinsics and the scene is non-planar, non-panoramic. |
+| `UNCALIBRATED` | Uncalibrated (fundamental matrix) model. Used when camera intrinsics are unknown. |
+| `PLANAR` | Planar scene (homography model). |
+| `PANORAMIC` | Panoramic (pure rotation) configuration (homography model). |
+| `PLANAR_OR_PANORAMIC` | Scene is either planar or panoramic; the two cannot be distinguished from the given matches. |
+| `WATERMARK` | Image pair contains a watermark. |
+| `MULTIPLE` | Multiple models were found. |
+
+## Examples
+
+<CodeGroup>
+
+```python Calibrated two-view geometry with pose
+import numpy as np
+import pycolmap
+
+camera1 = pycolmap.Camera(
+    model="SIMPLE_PINHOLE",
+    width=1920,
+    height=1080,
+    params=[1200.0, 960.0, 540.0],
+)
+camera2 = pycolmap.Camera(
+    model="SIMPLE_PINHOLE",
+    width=1920,
+    height=1080,
+    params=[1200.0, 960.0, 540.0],
+)
+
+points1 = np.load("keypoints1.npy")   # (N, 2)
+points2 = np.load("keypoints2.npy")   # (N, 2)
+matches = np.load("matches.npy")      # (M, 2) integer indices
+
+opts = pycolmap.TwoViewGeometryOptions()
+opts.compute_relative_pose = True
+opts.ransac.max_error = 4.0
+
+geometry = pycolmap.estimate_calibrated_two_view_geometry(
+    camera1, points1, camera2, points2,
+    matches=matches,
+    options=opts,
+)
+
+print("Config:", geometry.config)
+print("Inlier matches shape:", geometry.inlier_matches.shape)
+print("Median tri angle:", geometry.tri_angle)
+
+if geometry.config == pycolmap.TwoViewGeometryConfiguration.CALIBRATED:
+    print("Relative pose:", geometry.cam2_from_cam1)
+```
+
+```python Recover pose after estimation
+import numpy as np
+import pycolmap
+
+camera1 = pycolmap.Camera(
+    model="SIMPLE_PINHOLE",
+    width=1920,
+    height=1080,
+    params=[1200.0, 960.0, 540.0],
+)
+camera2 = pycolmap.Camera(
+    model="SIMPLE_PINHOLE",
+    width=1920,
+    height=1080,
+    params=[1200.0, 960.0, 540.0],
+)
+
+points1 = np.load("keypoints1.npy")
+points2 = np.load("keypoints2.npy")
+matches = np.load("matches.npy")
+
+# Estimate geometry without pose first
+geometry = pycolmap.estimate_calibrated_two_view_geometry(
+    camera1, points1, camera2, points2, matches=matches
+)
+
+# Then recover pose separately
+pycolmap.estimate_two_view_geometry_pose(
+    camera1, points1, camera2, points2, geometry
+)
+
+print("Relative pose:", geometry.cam2_from_cam1)
+```
+
+```python Invert geometry to swap camera order
+import numpy as np
+import pycolmap
+
+camera1 = pycolmap.Camera(
+    model="SIMPLE_PINHOLE",
+    width=1920,
+    height=1080,
+    params=[1200.0, 960.0, 540.0],
+)
+camera2 = pycolmap.Camera(
+    model="SIMPLE_PINHOLE",
+    width=1920,
+    height=1080,
+    params=[1200.0, 960.0, 540.0],
+)
+
+points1 = np.load("keypoints1.npy")
+points2 = np.load("keypoints2.npy")
+
+opts = pycolmap.TwoViewGeometryOptions()
+opts.compute_relative_pose = True
+
+geometry = pycolmap.estimate_calibrated_two_view_geometry(
+    camera1, points1, camera2, points2, options=opts
+)
+
+# geometry.cam2_from_cam1 gives pose of cam2 relative to cam1
+# .invert() returns cam1_from_cam2
+cam1_from_cam2_geom = geometry.invert()
+print("cam1_from_cam2:", cam1_from_cam2_geom.cam2_from_cam1)
+```
+
+</CodeGroup>

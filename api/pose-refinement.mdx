@@ -1,0 +1,167 @@
+---
+title: "pose_refinement"
+description: "Refine an initial absolute camera pose using non-linear least squares optimization over a set of 2D-3D inlier correspondences."
+---
+
+## Function signature
+
+```python
+pycolmap.pose_refinement(
+    cam_from_world,
+    points2D,
+    points3D,
+    inlier_mask,
+    camera,
+    refinement_options = pycolmap.AbsolutePoseRefinementOptions(),
+)
+```
+
+<Note>
+  Returns `None` if refinement fails. This typically happens when the solver does not converge. Always check the return value before accessing its fields.
+</Note>
+
+## Parameters
+
+<ParamField path="cam_from_world" type="pycolmap.Rigid3d" required>
+  Initial camera-from-world rigid transformation to refine. This value is used as the starting point for the non-linear optimizer.
+</ParamField>
+
+<ParamField path="points2D" type="numpy.ndarray" required>
+  Nx2 array of 2D pixel coordinates in the image. Each row is `[x, y]`.
+</ParamField>
+
+<ParamField path="points3D" type="numpy.ndarray" required>
+  Nx3 array of 3D world coordinates. Each row is `[X, Y, Z]`. Must have the same number of rows as `points2D`.
+</ParamField>
+
+<ParamField path="inlier_mask" type="numpy.ndarray" required>
+  Boolean array of length N indicating which correspondences to use during refinement. Only correspondences where `inlier_mask[i]` is `True` contribute to the optimization.
+</ParamField>
+
+<ParamField path="camera" type="pycolmap.Camera" required>
+  Camera model describing the intrinsics. May be updated in-place when `refinement_options.refine_focal_length` or `refinement_options.refine_extra_params` is `True`.
+</ParamField>
+
+<ParamField path="refinement_options" type="pycolmap.AbsolutePoseRefinementOptions">
+  Non-linear refinement configuration. See [AbsolutePoseRefinementOptions](#absoluteposerefinementoptions) below.
+</ParamField>
+
+## Return value
+
+Returns a `dict` on success, or `None` on failure.
+
+<ResponseField name="cam_from_world" type="pycolmap.Rigid3d">
+  The refined camera-from-world rigid transformation.
+</ResponseField>
+
+## AbsolutePoseRefinementOptions
+
+Construct with `pycolmap.AbsolutePoseRefinementOptions()` and set fields, or pass a `dict`.
+
+```python
+ref_opts = pycolmap.AbsolutePoseRefinementOptions()
+ref_opts.refine_focal_length = True
+ref_opts.max_num_iterations = 200
+
+# Equivalent dict form
+pycolmap.pose_refinement(
+    cam_from_world, points2D, points3D, inlier_mask, camera,
+    refinement_options={"refine_focal_length": True, "max_num_iterations": 200},
+)
+```
+
+<ParamField path="gradient_tolerance" type="float">
+  Ceres solver gradient tolerance. Refinement stops when the gradient norm drops below this threshold.
+</ParamField>
+
+<ParamField path="max_num_iterations" type="int">
+  Maximum number of Ceres solver iterations.
+</ParamField>
+
+<ParamField path="loss_function_scale" type="float">
+  Scale parameter for the Cauchy robust loss function applied to reprojection errors.
+</ParamField>
+
+<ParamField path="refine_focal_length" type="bool" default="False">
+  When `True`, also optimizes the focal length of the camera during refinement.
+</ParamField>
+
+<ParamField path="refine_extra_params" type="bool" default="False">
+  When `True`, also optimizes the extra camera parameters (e.g., distortion coefficients) during refinement.
+</ParamField>
+
+<ParamField path="print_summary" type="bool" default="False">
+  When `True`, prints the Ceres solver summary to stdout after refinement.
+</ParamField>
+
+## Examples
+
+<CodeGroup>
+
+```python Refine a pose from absolute_pose_estimation
+import numpy as np
+import pycolmap
+
+camera = pycolmap.Camera(
+    model="SIMPLE_PINHOLE",
+    width=1920,
+    height=1080,
+    params=[1200.0, 960.0, 540.0],
+)
+
+points2D = np.load("points2D.npy")
+points3D = np.load("points3D.npy")
+
+# First, run full estimation to get an initial pose and inlier mask
+result = pycolmap.absolute_pose_estimation(points2D, points3D, camera)
+
+if result is not None:
+    # Refine the pose using all inliers
+    refined = pycolmap.pose_refinement(
+        result["cam_from_world"],
+        points2D,
+        points3D,
+        result["inliers"],
+        camera,
+    )
+    if refined is not None:
+        print("Refined pose:", refined["cam_from_world"])
+```
+
+```python Refine with intrinsics optimization
+import numpy as np
+import pycolmap
+
+camera = pycolmap.Camera(
+    model="OPENCV",
+    width=1920,
+    height=1080,
+    params=[1200.0, 1200.0, 960.0, 540.0, -0.1, 0.05, 0.0, 0.0],
+)
+
+points2D = np.load("points2D.npy")
+points3D = np.load("points3D.npy")
+inlier_mask = np.load("inlier_mask.npy")  # boolean array of length N
+initial_pose = pycolmap.Rigid3d()          # your initial pose
+
+ref_opts = pycolmap.AbsolutePoseRefinementOptions()
+ref_opts.refine_focal_length = True
+ref_opts.refine_extra_params = True
+ref_opts.max_num_iterations = 500
+ref_opts.print_summary = True
+
+result = pycolmap.pose_refinement(
+    initial_pose,
+    points2D,
+    points3D,
+    inlier_mask,
+    camera,
+    refinement_options=ref_opts,
+)
+
+if result is not None:
+    print("Refined pose:", result["cam_from_world"])
+    print("Refined camera params:", camera.params)  # updated in-place
+```
+
+</CodeGroup>

@@ -1,0 +1,111 @@
+---
+title: "Fundamental matrix estimation"
+description: "Estimate the fundamental matrix from uncalibrated 2D point correspondences using LORANSAC and the 7-point algorithm."
+---
+
+The fundamental matrix F describes the epipolar geometry between two views without requiring known camera intrinsics. Given two sets of corresponding pixel coordinates, `pycolmap.fundamental_matrix_estimation` returns F and the inlier set.
+
+## `pycolmap.fundamental_matrix_estimation`
+
+```python
+result = pycolmap.fundamental_matrix_estimation(
+    points2D1,                        # Nx2 float array — pixel coordinates in image 1
+    points2D2,                        # Nx2 float array — pixel coordinates in image 2
+    estimation_options = pycolmap.RANSACOptions(),
+)
+```
+
+The estimator uses **LORANSAC** with the **7-point algorithm** for minimal sampling and the **8-point algorithm** for the local optimization step. Algebraic distance in pixel space is used as the RANSAC residual, which is appropriate because the fundamental matrix is defined directly in pixel coordinates.
+
+## Parameters
+
+<ParamField path="points2D1" type="numpy.ndarray" required>
+  Nx2 array of pixel coordinates in image 1. Rows correspond one-to-one with `points2D2`.
+</ParamField>
+
+<ParamField path="points2D2" type="numpy.ndarray" required>
+  Nx2 array of pixel coordinates in image 2.
+</ParamField>
+
+<ParamField path="estimation_options" type="pycolmap.RANSACOptions">
+  RANSAC parameters. `max_error` is the Sampson distance threshold in pixels. See [RANSACOptions](/estimators/overview#ransacoptions) for all fields and defaults.
+</ParamField>
+
+## Return value
+
+Returns a `dict` on success, or `None` if RANSAC fails.
+
+<ResponseField name="F" type="numpy.ndarray">
+  3×3 fundamental matrix satisfying `points2D2.T @ F @ points2D1 ≈ 0` for inlier correspondences (in homogeneous pixel coordinates).
+</ResponseField>
+
+<ResponseField name="num_inliers" type="int">
+  Number of correspondences classified as inliers.
+</ResponseField>
+
+<ResponseField name="inliers" type="numpy.ndarray">
+  Boolean array of length N. `inliers[i]` is `True` if correspondence `i` is consistent with F.
+</ResponseField>
+
+## Algorithm details
+
+<AccordionGroup>
+  <Accordion title="7-point vs. 8-point algorithm">
+    The 7-point algorithm is the minimal solver for the fundamental matrix — it requires exactly 7 point pairs and can produce up to 3 real solutions, of which the one with the most inlier support is kept. The 8-point algorithm (Hartley) uses a linear least-squares fit over all given points and always produces a unique solution, making it suitable for the local optimization step in LORANSAC where more than the minimal set of points is available.
+  </Accordion>
+  <Accordion title="Rank-2 constraint">
+    Both estimators enforce the rank-2 constraint on F by singular value decomposition — the smallest singular value is set to zero after fitting.
+  </Accordion>
+</AccordionGroup>
+
+## When to use fundamental matrix vs. essential matrix
+
+- Use the **fundamental matrix** when camera intrinsics are unknown or when you want to defer calibration.
+- Use the **essential matrix** when camera intrinsics are known — it encodes fewer degrees of freedom (5 instead of 7) and provides a metric relative pose. See [Essential matrix estimation](/estimators/essential-matrix).
+
+<Tip>
+  If you have calibration data, prefer `pycolmap.essential_matrix_estimation`. The essential matrix imposes stronger geometric constraints and tends to yield more accurate results.
+</Tip>
+
+## Examples
+
+<CodeGroup>
+
+```python Minimal
+import numpy as np
+import pycolmap
+
+points1 = np.array([[u1, v1], [u2, v2], ...])  # Nx2
+points2 = np.array([[u1, v1], [u2, v2], ...])  # Nx2
+
+result = pycolmap.fundamental_matrix_estimation(points1, points2)
+if result is not None:
+    F = result["F"]  # 3x3 numpy array
+    print(f"Inliers: {result['num_inliers']} / {len(points1)}")
+```
+
+```python Custom RANSAC options
+import pycolmap
+
+result = pycolmap.fundamental_matrix_estimation(
+    points1, points2,
+    estimation_options={"max_error": 1.5, "confidence": 0.999},
+)
+```
+
+```python Verify epipolar constraint on inliers
+import numpy as np
+import pycolmap
+
+result = pycolmap.fundamental_matrix_estimation(points1, points2)
+if result is not None:
+    F    = result["F"]
+    mask = result["inliers"]
+    p1   = np.column_stack([points1[mask], np.ones(mask.sum())])  # Nx3 homogeneous
+    p2   = np.column_stack([points2[mask], np.ones(mask.sum())])
+    # Sampson errors (should be near zero for true inliers)
+    errors = np.abs((p2 * (F @ p1.T).T).sum(axis=1))
+    print("Mean epipolar error:", errors.mean())
+```
+
+</CodeGroup>

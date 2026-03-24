@@ -1,0 +1,209 @@
+---
+title: "Image"
+description: "A single image in a reconstruction, holding its pose, 2D keypoints, and 3D point associations."
+---
+
+## Class signature
+
+```python
+pycolmap.Image(
+    name="",
+    points2D=[],
+    cam_from_world=Rigid3d(),
+    camera_id=INVALID,
+    id=INVALID,
+)
+```
+
+You can also construct an `Image` from a list of raw `numpy.ndarray` keypoint positions by using the `keypoints` keyword instead of `points2D`.
+
+## Constructor
+
+<ParamField path="name" type="str" default=''>
+  Filename or relative path of the image, e.g. `"frames/001.jpg"`.
+</ParamField>
+
+<ParamField path="points2D" type="list[pycolmap.Point2D]" default="[]">
+  List of 2D keypoints. Mutually exclusive with `keypoints`.
+</ParamField>
+
+<ParamField path="keypoints" type="list[numpy.ndarray (2,)]" default="[]">
+  List of raw (x, y) positions. Convenience alternative to `points2D`.
+</ParamField>
+
+<ParamField path="cam_from_world" type="pycolmap.Rigid3d" default="identity">
+  Pose of the image — the rigid transformation that maps world coordinates to camera coordinates.
+</ParamField>
+
+<ParamField path="camera_id" type="int" default="INVALID_CAMERA_ID">
+  ID of the [`Camera`](/api/camera) associated with this image.
+</ParamField>
+
+<ParamField path="id" type="int" default="INVALID_IMAGE_ID">
+  Unique image ID. Assigned automatically when the image is added to a [`Reconstruction`](/api/reconstruction).
+</ParamField>
+
+## Properties
+
+<ResponseField name="image_id" type="int">
+  Unique identifier of the image. Writable.
+</ResponseField>
+
+<ResponseField name="camera_id" type="int">
+  ID of the associated camera. Writable; raises an error if set to `INVALID_CAMERA_ID`.
+</ResponseField>
+
+<ResponseField name="name" type="str">
+  Filename or path of the image. Writable.
+</ResponseField>
+
+<ResponseField name="cam_from_world" type="pycolmap.Rigid3d">
+  The pose of the image. Encodes the rigid transformation **T** such that `x_cam = T * x_world`. Writable.
+
+  <Expandable title="Rigid3d fields">
+    <ResponseField name="rotation" type="pycolmap.Rotation3d">
+      Orientation as a unit quaternion.
+    </ResponseField>
+    <ResponseField name="translation" type="numpy.ndarray (3,)">
+      Translation vector.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="cam_from_world_prior" type="pycolmap.Rigid3d">
+  Prior pose (e.g. from EXIF or GPS). Writable.
+</ResponseField>
+
+<ResponseField name="points2D" type="ListPoint2D">
+  List of 2D keypoints (`Point2D` objects). Writable; must be a non-empty list.
+</ResponseField>
+
+<ResponseField name="registered" type="bool">
+  Whether this image has been registered (given a pose) in the reconstruction. Writable.
+</ResponseField>
+
+<ResponseField name="num_points3D" type="int">
+  Read-only. Number of keypoints that are part of a 3D point track.
+</ResponseField>
+
+<ResponseField name="num_observations" type="int">
+  Number of keypoints that have at least one correspondence to another image. Writable.
+</ResponseField>
+
+<ResponseField name="num_correspondences" type="int">
+  Total number of cross-image correspondences for all keypoints. Writable.
+</ResponseField>
+
+## Keypoint count methods
+
+### `num_points2D()`
+
+Return the total number of 2D keypoints in this image.
+
+### `num_visible_points3D()`
+
+Return the number of keypoints that have a correspondence to a triangulated 3D point in at least one other image.
+
+### `point3D_visibility_score()`
+
+Return a score reflecting both the count and the spatial distribution of triangulated keypoints. A more uniform distribution yields a higher score, making this useful for selecting the next best image to register in incremental SfM.
+
+## Point association methods
+
+### `set_point3D_for_point2D(point2D_idx, point3D_id)`
+
+Mark keypoint `point2D_idx` as part of 3D point `point3D_id`.
+
+<ParamField path="point2D_idx" type="int" required>
+  Index into `points2D`.
+</ParamField>
+
+<ParamField path="point3D_id" type="int" required>
+  ID of the corresponding 3D point. Must not be `INVALID_POINT3D_ID`.
+</ParamField>
+
+### `reset_point3D_for_point2D(point2D_idx)`
+
+Mark keypoint `point2D_idx` as not triangulated (set its `point3D_id` to `INVALID`).
+
+### `has_point3D(point3D_id)`
+
+Return `True` if any keypoint in this image is associated with `point3D_id`.
+
+### `is_point3D_visible(point2D_idx)`
+
+Return `True` if the keypoint at `point2D_idx` has a correspondence in another image that is already triangulated.
+
+### `get_valid_point2D_ids()`
+
+Return a list of keypoint indices that are currently associated with a 3D point.
+
+```python
+valid_ids = image.get_valid_point2D_ids()
+# [0, 2, 5, 7, ...]
+```
+
+### `get_valid_points2D()`
+
+Return a list of `Point2D` objects for all keypoints that are associated with a 3D point.
+
+```python
+valid_pts = image.get_valid_points2D()
+for p in valid_pts:
+    print(p.xy, p.point3D_id)
+```
+
+## Geometry methods
+
+### `projection_center()`
+
+Return the camera center in world coordinates as a `numpy.ndarray (3,)`.
+
+### `viewing_direction()`
+
+Return the unit viewing direction vector in world coordinates as a `numpy.ndarray (3,)`.
+
+## Setup and validation
+
+### `has_camera()`
+
+Return `True` if a valid `camera_id` has been set.
+
+### `set_up(camera)`
+
+Initialize internal data structures required before the image is used in reconstruction. The camera's `camera_id` must match the image's `camera_id`.
+
+## Visibility tracking (advanced)
+
+### `increment_correspondence_has_point3D(point2D_idx)`
+
+Signal that a correspondence from this keypoint leads to a newly triangulated point in another image. Must only be called after `set_up()`.
+
+### `decrement_correspondence_has_point3D(point2D_idx)`
+
+Signal that a formerly triangulated correspondence is no longer triangulated. Must only be called after `set_up()`.
+
+## Examples
+
+```python
+import pycolmap
+
+rec = pycolmap.Reconstruction("/sparse/0")
+
+# Access an image by ID
+image = rec.images[1]
+print(image.name)               # e.g. "frame_001.jpg"
+print(image.num_points3D)       # triangulated keypoints
+
+# Camera-to-world translation
+center = image.projection_center()
+
+# Iterate triangulated keypoints
+for p2d in image.get_valid_points2D():
+    print(p2d.xy, p2d.point3D_id)
+
+# Pose
+pose = image.cam_from_world
+R = pose.rotation.matrix()      # 3x3 rotation matrix
+t = pose.translation            # numpy (3,)
+```

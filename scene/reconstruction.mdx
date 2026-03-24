@@ -1,0 +1,273 @@
+---
+title: "Reconstruction"
+description: "Load, inspect, transform, and export a COLMAP sparse reconstruction using pycolmap.Reconstruction."
+keywords: ["reconstruction", "SfM", "cameras", "images", "points3D", "PLY", "alignment"]
+---
+
+A `pycolmap.Reconstruction` holds the full output of a sparse Structure-from-Motion run: a map of cameras, a map of registered images (each with a pose), and a map of triangulated 3D points. All three are keyed by integer IDs.
+
+## Loading a reconstruction
+
+Pass the path to a directory that contains either binary (`cameras.bin`, `images.bin`, `points3D.bin`) or text (`cameras.txt`, `images.txt`, `points3D.txt`) files. Binary format is preferred and is loaded automatically when both formats are present.
+
+```python
+import pycolmap
+
+reconstruction = pycolmap.Reconstruction("path/to/reconstruction/dir")
+print(reconstruction.summary())
+```
+
+Sample output from `summary()`:
+
+```
+Reconstruction:
+	num_reg_images = 11
+	num_cameras = 1
+	num_points3D = 127389
+	num_observations = 518932
+	mean_track_length = 4.07
+	mean_observations_per_image = 47175.6
+	mean_reprojection_error = 0.512
+```
+
+You can also create an empty reconstruction and read into it later:
+
+```python
+reconstruction = pycolmap.Reconstruction()
+reconstruction.read("path/to/reconstruction/dir")   # binary or text
+reconstruction.read_binary("path/to/dir")            # binary only
+reconstruction.read_text("path/to/dir")              # text only
+```
+
+## Accessing scene data
+
+The three main properties return dict-like maps keyed by integer ID.
+
+```python
+import pycolmap
+
+reconstruction = pycolmap.Reconstruction("path/to/reconstruction/dir")
+
+# Iterate over all registered images
+for image_id, image in reconstruction.images.items():
+    print(image_id, image)
+
+# Iterate over all 3D points
+for point3D_id, point3D in reconstruction.points3D.items():
+    print(point3D_id, point3D)
+
+# Iterate over all cameras
+for camera_id, camera in reconstruction.cameras.items():
+    print(camera_id, camera)
+```
+
+| Property | Type | Description |
+|---|---|---|
+| `reconstruction.images` | `MapImageIdToImage` | All images added to the reconstruction, whether registered or not. |
+| `reconstruction.cameras` | `MapCameraIdToCamera` | All camera models in the reconstruction. |
+| `reconstruction.points3D` | `MapPoint3DIdToPoint3D` | All triangulated 3D points. |
+| `reconstruction.image_pairs` | dict | All image pair statistics. |
+
+<Note>
+  `reconstruction.images` contains every image that was added, not only those with a pose. Use `reconstruction.reg_image_ids()` to get only the IDs of registered (posed) images.
+</Note>
+
+## Counting elements
+
+```python
+reconstruction.num_cameras()         # number of camera models
+reconstruction.num_images()          # total images (registered + unregistered)
+reconstruction.num_reg_images()      # registered (posed) images only
+reconstruction.num_points3D()        # triangulated 3D points
+reconstruction.num_image_pairs()     # image pairs with overlap information
+```
+
+## Statistics
+
+```python
+reconstruction.compute_num_observations()              # total 2D–3D correspondences
+reconstruction.compute_mean_track_length()             # avg observations per 3D point
+reconstruction.compute_mean_observations_per_reg_image()  # avg 3D points per image
+reconstruction.compute_mean_reprojection_error()       # avg reprojection error (pixels)
+```
+
+## Writing a reconstruction
+
+<CodeGroup>
+
+```python Binary (default)
+# Write cameras.bin, images.bin, points3D.bin
+reconstruction.write("path/to/output/dir/")
+```
+
+```python Text
+# Write cameras.txt, images.txt, points3D.txt
+reconstruction.write_text("path/to/output/dir/")
+```
+
+```python Binary explicit
+reconstruction.write_binary("path/to/output/dir/")
+```
+
+</CodeGroup>
+
+## Exporting to other formats
+
+```python
+# Export 3D points as a PLY point cloud
+reconstruction.export_PLY("reconstruction.ply")
+
+# Export in NVM format (VisualSFM)
+reconstruction.export_NVM("reconstruction.nvm", skip_distortion=False)
+
+# Export in Bundler format
+reconstruction.export_bundler("reconstruction.out", "image_list.txt")
+
+# Export camera poses per image in CAM format
+reconstruction.export_CAM("output_dir/")
+
+# Export in VRML format
+reconstruction.export_VRML(
+    "images.wrl",
+    "points3D.wrl",
+    image_scale=1.0,
+    image_rgb=[1.0, 0.0, 0.0],
+)
+```
+
+<Warning>
+  `export_NVM` and `export_CAM` with distortion parameters only support specific camera models. Pass `skip_distortion=True` to support all models at the cost of using a mean focal length.
+</Warning>
+
+## Transforming a reconstruction
+
+Apply a 3D similarity transformation (scale, rotation, translation) to all camera poses and 3D points:
+
+```python
+# sim3 is a pycolmap.Sim3d object (scale, rotation, translation)
+reconstruction.transform(sim3)
+```
+
+## Aligning two reconstructions
+
+Align one reconstruction to another via shared camera reprojection:
+
+```python
+rec2_from_rec1 = pycolmap.align_reconstructions_via_reprojections(
+    reconstruction1,
+    reconstruction2,
+)
+reconstruction1.transform(rec2_from_rec1)
+
+# Inspect the alignment transform
+print(rec2_from_rec1.scale)
+print(rec2_from_rec1.rotation)
+print(rec2_from_rec1.translation)
+```
+
+## Projecting a 3D point into an image
+
+Combine the image pose and camera model to project any 3D point to pixel coordinates:
+
+```python
+image = reconstruction.images[image_id]
+camera = reconstruction.cameras[image.camera_id]
+point3D = reconstruction.points3D[point3D_id]
+
+# cam_from_world transforms the 3D point from world into camera space
+uv = camera.img_from_cam(image.cam_from_world * point3D.xyz)
+print(uv)  # [x_pixel, y_pixel]
+```
+
+## Modifying a reconstruction
+
+```python
+# Add a camera
+reconstruction.add_camera(camera)
+
+# Add an image (must not already exist)
+reconstruction.add_image(image)
+
+# Add a 3D point and return its new ID
+point3D_id = reconstruction.add_point3D(
+    xyz=np.array([1.0, 2.0, 3.0]),
+    track=pycolmap.Track(),
+    color=np.array([128, 200, 100], dtype=np.uint8),
+)
+
+# Register / deregister image pose
+reconstruction.register_image(image_id)
+reconstruction.deregister_image(image_id)
+
+# Delete a 3D point and all its track references
+reconstruction.delete_point3D(point3D_id)
+```
+
+## Filtering points
+
+```python
+# Filter by reprojection error and triangulation angle across all points
+num_removed = reconstruction.filter_all_points3D(
+    max_reproj_error=4.0,
+    min_tri_angle=1.5,  # degrees
+)
+
+# Filter only points visible in specific images
+num_removed = reconstruction.filter_points3D_in_images(
+    max_reproj_error=4.0,
+    min_tri_angle=1.5,
+    image_ids={1, 2, 3},
+)
+
+# Remove observations with negative depth
+num_removed = reconstruction.filter_observations_with_negative_depth()
+```
+
+## Checking consistency
+
+```python
+# Raises an exception if the reconstruction is internally inconsistent
+reconstruction.check()
+```
+
+## Normalizing the scene
+
+Translates and scales the scene to improve numerical stability and visualization:
+
+```python
+reconstruction.normalize()  # centers camera centers at origin and scales to unit extent
+```
+
+## Bounding box and cropping
+
+```python
+bbox_min, bbox_max = reconstruction.compute_bounding_box(p0=0.05, p1=0.95)
+cropped = reconstruction.crop(bbox_min, bbox_max)
+```
+
+## Extracting point colors from images
+
+```python
+# Color all black 3D points by sampling the given image
+reconstruction.extract_colors_for_image(image_id, "/path/to/image/root")
+
+# Color all black 3D points from all images
+reconstruction.extract_colors_for_all_images("/path/to/image/root")
+```
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Camera" icon="camera" href="/scene/camera">
+    Camera models and projection methods
+  </Card>
+  <Card title="Image" icon="image" href="/scene/image">
+    Image pose, keypoints, and 2D–3D associations
+  </Card>
+  <Card title="Point3D" icon="cube" href="/scene/point3d">
+    3D point coordinates, color, error, and track
+  </Card>
+  <Card title="Database" icon="database" href="/scene/database">
+    SQLite database of images, features, and matches
+  </Card>
+</CardGroup>

@@ -1,0 +1,86 @@
+---
+title: "PyCOLMAP"
+description: "Python bindings for COLMAP — Structure-from-Motion and Multi-View Stereo reconstruction in Python."
+---
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Install PyCOLMAP via pip on Linux, macOS, and Windows
+  </Card>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Run your first 3D reconstruction in minutes
+  </Card>
+  <Card title="Pipeline" icon="diagram-project" href="/pipeline/overview">
+    End-to-end reconstruction: features, matching, SfM, and MVS
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/extract-features">
+    Full API reference for all functions and classes
+  </Card>
+</CardGroup>
+
+## What is PyCOLMAP?
+
+PyCOLMAP exposes the full power of [COLMAP](https://colmap.github.io/) — a general-purpose Structure-from-Motion (SfM) and Multi-View Stereo (MVS) pipeline — as a Python library. You can run complete 3D reconstructions from image sets, access and manipulate reconstruction data, and use robust geometric estimators, all from Python.
+
+<Note>
+  Development of PyCOLMAP has moved to the [main COLMAP repository](https://github.com/colmap/colmap/tree/main/pycolmap). This standalone repository will be archived. PyCOLMAP remains available on [PyPI](https://pypi.org/project/pycolmap/).
+</Note>
+
+## Key capabilities
+
+<CardGroup cols={2}>
+  <Card title="Full SfM pipeline" icon="camera">
+    Extract SIFT features, match images exhaustively or with vocabulary trees, and run incremental Structure-from-Motion reconstruction.
+  </Card>
+  <Card title="Dense reconstruction" icon="cube">
+    Undistort images, run patch-match stereo (requires CUDA), and fuse depth maps into a dense point cloud or mesh.
+  </Card>
+  <Card title="Geometric estimators" icon="ruler-combined">
+    RANSAC-based estimators for absolute pose, essential matrix, fundamental matrix, homography, and two-view geometry.
+  </Card>
+  <Card title="Scene object API" icon="layer-group">
+    Load, inspect, and manipulate COLMAP reconstructions: cameras, images, 3D points, and the correspondence database.
+  </Card>
+  <Card title="GPU acceleration" icon="microchip">
+    Feature extraction, matching, and MVS can leverage CUDA GPUs when COLMAP is compiled with CUDA support.
+  </Card>
+  <Card title="Pythonic configuration" icon="sliders">
+    Configure any step with plain Python dicts that are recursively merged into defaults — no configuration files required.
+  </Card>
+</CardGroup>
+
+## Supported platforms
+
+PyCOLMAP wheels are pre-built and published to PyPI for:
+
+| Platform | Python versions | Notes |
+|---|---|---|
+| Linux (manylinux) | 3.8, 3.9, 3.10, 3.11 | CPU only; build from source for CUDA |
+| macOS 10/11/12 Intel | 3.8, 3.9, 3.10, 3.11 | — |
+| macOS (Apple Silicon) | 3.8, 3.9, 3.10, 3.11 | Universal2 wheels |
+| Windows | 3.8, 3.9, 3.10, 3.11 | — |
+
+## Quick example
+
+```python quickstart.py
+import pathlib
+import pycolmap
+
+output_path = pathlib.Path("output/")
+image_dir   = pathlib.Path("images/")
+database_path = output_path / "database.db"
+
+output_path.mkdir(exist_ok=True)
+
+# Extract SIFT features
+pycolmap.extract_features(database_path, image_dir)
+
+# Match all image pairs
+pycolmap.match_exhaustive(database_path)
+
+# Run incremental SfM
+maps = pycolmap.incremental_mapping(database_path, image_dir, output_path)
+maps[0].write(output_path)
+```
+
+See the [Quickstart](/quickstart) guide for a complete walkthrough with dense reconstruction.

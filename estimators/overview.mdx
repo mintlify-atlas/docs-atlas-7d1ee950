@@ -1,0 +1,156 @@
+---
+title: "Estimators overview"
+description: "RANSAC-based geometric estimators in PyCOLMAP: absolute pose, essential matrix, fundamental matrix, homography, and two-view geometry."
+---
+
+PyCOLMAP provides robust RANSAC-based estimators for the core geometric problems that arise in Structure-from-Motion. Each estimator wraps the corresponding COLMAP C++ implementation with a clean Python interface.
+
+## When to use each estimator
+
+| Estimator | Input | Use case |
+|---|---|---|
+| [Absolute pose](/estimators/absolute-pose) | 2D–3D correspondences + camera | Localize a query image in a known 3D map |
+| [Essential matrix](/estimators/essential-matrix) | 2D–2D correspondences + two cameras | Relative pose between two calibrated cameras |
+| [Fundamental matrix](/estimators/fundamental-matrix) | 2D–2D correspondences | Epipolar geometry without calibration |
+| [Homography](/estimators/homography) | 2D–2D correspondences | Planar scenes or pure rotation between views |
+| [Two-view geometry](/estimators/two-view-geometry) | 2D–2D correspondences + two cameras | Model selection between E, H, and degenerate cases |
+
+## RANSACOptions
+
+All estimators accept a `RANSACOptions` object that controls the robust estimation. The defaults are:
+
+```python
+ransac_options = pycolmap.RANSACOptions(
+    max_error=4.0,           # inlier threshold (e.g. reprojection error in pixels)
+    min_inlier_ratio=0.01,   # minimum fraction of inliers required
+    confidence=0.9999,       # probability that at least one sample is outlier-free
+    min_num_trials=1000,     # minimum number of RANSAC iterations
+    max_num_trials=100000,   # maximum number of RANSAC iterations
+)
+```
+
+<ParamField path="max_error" type="float" default="4.0">
+  Maximum residual for a point to be considered an inlier. For reprojection-based estimators this is in pixels; for the essential matrix estimator it is the symmetric epipolar distance in pixels, averaged across both cameras' focal lengths.
+</ParamField>
+
+<ParamField path="min_inlier_ratio" type="float" default="0.01">
+  Minimum fraction of the total correspondences that must be inliers for the result to be accepted.
+</ParamField>
+
+<ParamField path="confidence" type="float" default="0.9999">
+  Desired probability that at least one sampled set is free of outliers. Controls the adaptive number of iterations.
+</ParamField>
+
+<ParamField path="min_num_trials" type="int" default="1000">
+  Minimum number of RANSAC iterations regardless of the adaptive stopping criterion.
+</ParamField>
+
+<ParamField path="max_num_trials" type="int" default="100000">
+  Hard cap on the number of RANSAC iterations.
+</ParamField>
+
+<ParamField path="dyn_num_trials_multiplier" type="float" default="3.0">
+  Multiplier on the dynamically computed number of trials. Increase to reduce the probability of early termination with high outlier ratios.
+</ParamField>
+
+## Passing options
+
+Every estimator accepts options as either a typed object or a plain Python dict. Dicts are recursively merged into the defaults, so you only need to specify the keys you want to change.
+
+<CodeGroup>
+
+```python Object-based options
+import pycolmap
+
+opts = pycolmap.RANSACOptions()
+opts.max_error = 2.0
+opts.confidence = 0.999
+
+result = pycolmap.fundamental_matrix_estimation(
+    points1, points2,
+    estimation_options=opts,
+)
+```
+
+```python Dict-based options
+import pycolmap
+
+result = pycolmap.fundamental_matrix_estimation(
+    points1, points2,
+    estimation_options={"max_error": 2.0, "confidence": 0.999},
+)
+```
+
+</CodeGroup>
+
+For nested options (such as `AbsolutePoseEstimationOptions` which embeds a `ransac` field):
+
+```python
+pycolmap.absolute_pose_estimation(
+    points2D, points3D, camera,
+    estimation_options=dict(ransac=dict(max_error=12.0)),
+    refinement_options=dict(refine_focal_length=True),
+)
+```
+
+<Tip>
+  Call `help(pycolmap.RANSACOptions)` or `help(pycolmap.AbsolutePoseEstimationOptions)` in a Python session to print all available fields and their current defaults.
+</Tip>
+
+## Handling failure
+
+All estimators return `None` when RANSAC fails to find a model that satisfies the inlier constraints. Always check the return value before accessing its fields.
+
+```python
+result = pycolmap.absolute_pose_estimation(points2D, points3D, camera)
+if result is None:
+    print("Estimation failed — not enough inliers")
+else:
+    print(result["cam_from_world"])
+    print(f"Inliers: {result['num_inliers']} / {len(points2D)}")
+```
+
+## Camera argument
+
+Several estimators require a `pycolmap.Camera` object. Create one from a model name and parameters:
+
+```python
+camera = pycolmap.Camera(
+    model="SIMPLE_PINHOLE",
+    width=1920,
+    height=1080,
+    params=[focal_length, cx, cy],
+)
+```
+
+Common camera models and their parameter vectors:
+
+| Model | Parameters |
+|---|---|
+| `SIMPLE_PINHOLE` | `[f, cx, cy]` |
+| `PINHOLE` | `[fx, fy, cx, cy]` |
+| `SIMPLE_RADIAL` | `[f, cx, cy, k]` |
+| `RADIAL` | `[f, cx, cy, k1, k2]` |
+| `OPENCV` | `[fx, fy, cx, cy, k1, k2, p1, p2]` |
+
+See [`colmap/sensor/models.h`](https://github.com/colmap/colmap/blob/main/src/colmap/sensor/models.h) for the full list.
+
+## Estimator pages
+
+<Columns cols={2}>
+  <Card title="Absolute pose" icon="crosshairs" href="/estimators/absolute-pose">
+    Localize a camera from 2D–3D point correspondences using RANSAC + PnP, with optional non-linear refinement.
+  </Card>
+  <Card title="Essential matrix" icon="arrows-left-right" href="/estimators/essential-matrix">
+    Estimate the essential matrix from pixel correspondences in two calibrated cameras and recover the relative pose.
+  </Card>
+  <Card title="Fundamental matrix" icon="border-none" href="/estimators/fundamental-matrix">
+    Estimate epipolar geometry without camera calibration using the 7-point algorithm in LORANSAC.
+  </Card>
+  <Card title="Homography" icon="table-cells" href="/estimators/homography">
+    Estimate a planar homography from four or more point correspondences.
+  </Card>
+  <Card title="Two-view geometry" icon="diagram-project" href="/estimators/two-view-geometry">
+    Joint model selection between calibrated essential matrix, homography, and degenerate configurations.
+  </Card>
+</Columns>
